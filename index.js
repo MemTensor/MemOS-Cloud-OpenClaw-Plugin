@@ -8,6 +8,22 @@ import {
 
 let lastCaptureTime = 0;
 const conversationCounters = new Map();
+const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
+const ENV_FILE_HINTS = "~/.openclaw/.env, ~/.moltbot/.env, ~/.clawdbot/.env";
+
+function warnMissingApiKey(log) {
+  log.warn?.(
+    [
+      "[memos-cloud] Missing MEMOS_API_KEY.",
+      "Configure it with one of:",
+      "  echo 'export MEMOS_API_KEY=\"mpg-...\"' >> ~/.zshrc",
+      "  source ~/.zshrc",
+      "  (or ~/.bashrc)",
+      "  [System.Environment]::SetEnvironmentVariable(\"MEMOS_API_KEY\", \"mpg-...\", \"User\")",
+      `Get an API key at: ${API_KEY_HELP_URL}`,
+    ].join("\n"),
+  );
+}
 
 function getCounterSuffix(sessionKey) {
   if (!sessionKey) return "";
@@ -144,8 +160,12 @@ export default {
     const cfg = buildConfig(api.pluginConfig);
     const log = api.logger ?? console;
 
-    if (cfg.envFileMissing) {
-      log.warn?.("[memos-cloud] ~/.openclaw/.env not found; set MEMOS_* env or plugin config.");
+    if (cfg.envFileMissing && cfg.apiKey) {
+      log.warn?.(`[memos-cloud] No env file found at ${ENV_FILE_HINTS}; using process.env or plugin config.`);
+    }
+
+    if (!cfg.apiKey) {
+      warnMissingApiKey(log);
     }
 
     if (cfg.conversationSuffixMode === "counter" && cfg.resetOnNew) {

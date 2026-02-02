@@ -44,11 +44,29 @@ Example `~/.openclaw/openclaw.json`:
 Restart the gateway after config changes.
 
 ## Environment Variables
-> If not set in the process env, the plugin reads `~/.openclaw/.env`.
+The plugin tries env files in order (**openclaw → moltbot → clawdbot**), and uses the first match.
+If none of these files exist, it falls back to the process environment.
 
 **Where to configure**
-- File: `~/.openclaw/.env`
+- Files (priority order):
+  - `~/.openclaw/.env`
+  - `~/.moltbot/.env`
+  - `~/.clawdbot/.env`
 - Each line is `KEY=value`
+
+**Quick setup (shell)**
+```bash
+echo 'export MEMOS_API_KEY="mpg-..."' >> ~/.zshrc
+source ~/.zshrc
+# or ~/.bashrc
+```
+
+**Quick setup (Windows PowerShell)**
+```powershell
+[System.Environment]::SetEnvironmentVariable("MEMOS_API_KEY", "mpg-...", "User")
+```
+
+If `MEMOS_API_KEY` is missing, the plugin will warn with setup instructions and the API key URL.
 
 **Minimal config**
 ```env
