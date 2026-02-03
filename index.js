@@ -2,7 +2,7 @@ import {
   addMessage,
   buildConfig,
   extractText,
-  formatContextBlock,
+  formatPromptBlock,
   searchMemory,
 } from "./lib/memos-cloud-api.js";
 
@@ -198,11 +198,11 @@ export default {
       try {
         const payload = buildSearchPayload(cfg, event.prompt, ctx);
         const result = await searchMemory(cfg, payload);
-        const contextBlock = formatContextBlock(result, { maxItemChars: 200 });
-        if (!contextBlock) return;
+        const promptBlock = formatPromptBlock(result, { maxItemChars: 200 });
+        if (!promptBlock) return;
 
         return {
-          prependContext: `<user_memory_context>\nRelevant memories from MemOS Cloud:\n${contextBlock}\n</user_memory_context>`,
+          prependContext: promptBlock,
         };
       } catch (err) {
         log.warn?.(`[memos-cloud] recall failed: ${String(err)}`);

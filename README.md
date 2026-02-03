@@ -13,7 +13,7 @@ A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud b
 
 ### Option A — GitHub
 ```bash
-openclaw plugins install github:MemTensor/MemOS-Cloud-Openclaw-Plugin
+openclaw plugins install github:MemTensor/MemOS-Cloud-OpenClaw-Plugin
 openclaw gateway restart
 ```
 Make sure it’s enabled in `~/.openclaw/openclaw.json`:
@@ -118,7 +118,7 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
 - **Recall** (`before_agent_start`)
   - Builds a `/search/memory` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
   - Default **global recall**: when `recallGlobal=true`, it does **not** pass `conversation_id`.
-  - Formats facts/preferences/tools into a context block, then injects via `prependContext`.
+  - Formats a MemOS prompt (Role/System/Memory/Skill/Protocols) from `/search/memory` results, then injects via `prependContext`.
 
 - **Add** (`agent_end`)
   - Builds a `/add/message` request with the **last turn** by default (user + assistant).

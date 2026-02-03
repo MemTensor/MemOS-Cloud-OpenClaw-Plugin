@@ -15,7 +15,7 @@
 
 ### 方式 A — GitHub
 ```bash
-openclaw plugins install github:MemTensor/MemOS-Cloud-Openclaw-Plugin
+openclaw plugins install github:MemTensor/MemOS-Cloud-OpenClaw-Plugin
 openclaw gateway restart
 ```
 确认 `~/.openclaw/openclaw.json` 中已启用：
@@ -122,8 +122,7 @@ MEMOS_API_KEY=YOUR_TOKEN
   - `user_id`、`query`（= prompt + 可选前缀）
   - 默认**全局召回**：`recallGlobal=true` 时不传 `conversation_id`
   - 可选 `filter` / `knowledgebase_ids`
-- 将召回的事实 / 偏好 / 工具记忆格式化成块
-- 通过 `prependContext` 注入到系统 prompt
+- 使用 `/search/memory` 结果按 MemOS 提示词模板（Role/System/Memory/Skill/Protocols）拼装，并通过 `prependContext` 注入
 
 ### 2) 添加（agent_end）
 - 默认只写**最后一轮**（user + assistant）
