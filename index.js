@@ -68,6 +68,7 @@ function buildSearchPayload(cfg, prompt, ctx) {
   const payload = {
     user_id: cfg.userId,
     query,
+    source: MEMOS_SOURCE,
   };
 
   if (!cfg.recallGlobal) {
