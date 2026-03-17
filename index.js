@@ -162,12 +162,14 @@ function pickLastTurnMessages(messages, cfg) {
   for (const msg of slice) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
-      const content = stripPrependedPrompt(extractText(msg.content));
+      const rawContent = stripPrependedPrompt(extractText(msg.content));
+      const content = sanitizeFeishuEnvelope(rawContent) || rawContent;
       if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
       continue;
     }
     if (msg.role === "assistant" && cfg.includeAssistant) {
-      const content = extractText(msg.content);
+      const rawContent = extractText(msg.content);
+      const content = sanitizeFeishuEnvelope(rawContent) || rawContent;
       if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars) });
     }
   }
@@ -180,11 +182,13 @@ function pickFullSessionMessages(messages, cfg) {
   for (const msg of messages) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
-      const content = stripPrependedPrompt(extractText(msg.content));
+      const rawContent = stripPrependedPrompt(extractText(msg.content));
+      const content = sanitizeFeishuEnvelope(rawContent) || rawContent;
       if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
     }
     if (msg.role === "assistant" && cfg.includeAssistant) {
-      const content = extractText(msg.content);
+      const rawContent = extractText(msg.content);
+      const content = sanitizeFeishuEnvelope(rawContent) || rawContent;
       if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars) });
     }
   }
@@ -195,6 +199,45 @@ function truncate(text, maxLen) {
   if (!text) return "";
   if (!maxLen) return text;
   return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+function stripReplyTags(text) {
+  if (!text) return text;
+  return text.replace(/^\s*\[\[\s*reply_to(?:_current|\s*:\s*[^\]]+)\s*\]\]\s*/i, "");
+}
+
+function sanitizeFeishuEnvelope(text) {
+  if (!text) return text;
+  let cleaned = String(text).replace(/\r\n/g, "\n");
+
+  cleaned = stripPrependedPrompt(cleaned);
+  cleaned = stripReplyTags(cleaned);
+
+  const looksLikeFeishuEnvelope =
+    /(?:^|\n)System:\s*\[[^\n]*\]\s*Feishu/i.test(cleaned) ||
+    /Conversation info \(untrusted metadata\):/i.test(cleaned) ||
+    /Sender \(untrusted metadata\):/i.test(cleaned);
+
+  if (looksLikeFeishuEnvelope) {
+    cleaned = cleaned.replace(/^System:\s*\[[^\n]*\]\s*Feishu[^\n]*\n*/i, "");
+
+    cleaned = cleaned.replace(
+      /\n*Conversation info \(untrusted metadata\):\s*```json[\s\S]*?```\s*/gi,
+      "\n",
+    );
+    cleaned = cleaned.replace(
+      /\n*Sender \(untrusted metadata\):\s*```json[\s\S]*?```\s*/gi,
+      "\n",
+    );
+
+    cleaned = cleaned.replace(/^\s*```text\s*/i, "");
+    cleaned = cleaned.replace(/\s*```\s*$/i, "");
+    cleaned = cleaned.replace(/^user\s*原\s*始\s*query\s*：*/im, "");
+  }
+
+  cleaned = stripReplyTags(cleaned);
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+  return cleaned;
 }
 
 function sleep(ms) {
