@@ -81,7 +81,7 @@ function buildSearchPayload(cfg, prompt, ctx) {
 
   if (!cfg.recallGlobal) {
     const conversationId = resolveConversationId(cfg, ctx);
-    if (conversationId) payload.conversation_id = conversationId;
+    if (conversationId) payload.session_id = conversationId;
   }
 
   let filterObj = cfg.filter ? JSON.parse(JSON.stringify(cfg.filter)) : null;
@@ -101,42 +101,41 @@ function buildSearchPayload(cfg, prompt, ctx) {
 
   if (filterObj) payload.filter = filterObj;
 
-  if (cfg.knowledgebaseIds?.length) payload.knowledgebase_ids = cfg.knowledgebaseIds;
+  if (cfg.knowledgebaseIds?.length) payload.readable_cube_ids = cfg.knowledgebaseIds;
 
-  payload.memory_limit_number = cfg.memoryLimitNumber;
+  payload.top_k = cfg.memoryLimitNumber;
   payload.include_preference = cfg.includePreference;
-  payload.preference_limit_number = cfg.preferenceLimitNumber;
-  payload.include_tool_memory = cfg.includeToolMemory;
-  payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
+  payload.pref_top_k = cfg.preferenceLimitNumber;
+  payload.search_tool_memory = cfg.includeToolMemory;
+  payload.tool_mem_top_k = cfg.toolMemoryLimitNumber;
   payload.relativity = cfg.relativity;
 
   return payload;
 }
 
 function buildAddMessagePayload(cfg, messages, ctx) {
-  const payload = {
-    user_id: cfg.userId,
-    conversation_id: resolveConversationId(cfg, ctx),
-    messages,
-    source: MEMOS_SOURCE,
-  };
-
-  const agentId = getEffectiveAgentId(cfg, ctx);
-  if (agentId) payload.agent_id = agentId;
-  if (cfg.appId) payload.app_id = cfg.appId;
-  if (cfg.tags?.length) payload.tags = cfg.tags;
-
   const info = {
     source: "openclaw",
     sessionKey: ctx?.sessionKey,
     agentId: ctx?.agentId,
     ...(cfg.info || {}),
   };
-  if (Object.keys(info).length > 0) payload.info = info;
+  const agentId = getEffectiveAgentId(cfg, ctx);
+  if (agentId) info.agent_id = agentId;
+  if (cfg.appId) info.app_id = cfg.appId;
+  if (cfg.allowPublic !== undefined) info.allow_public = cfg.allowPublic;
 
-  payload.allow_public = cfg.allowPublic;
-  if (cfg.allowKnowledgebaseIds?.length) payload.allow_knowledgebase_ids = cfg.allowKnowledgebaseIds;
-  payload.async_mode = cfg.asyncMode;
+  const payload = {
+    user_id: cfg.userId,
+    session_id: resolveConversationId(cfg, ctx),
+    messages,
+    source: MEMOS_SOURCE,
+    info,
+    async_mode: cfg.asyncMode === "sync" || cfg.asyncMode === false ? "sync" : "async",
+  };
+
+  if (cfg.tags?.length) payload.custom_tags = cfg.tags;
+  if (cfg.allowKnowledgebaseIds?.length) payload.writable_cube_ids = cfg.allowKnowledgebaseIds;
 
   return payload;
 }
