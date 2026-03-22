@@ -5,8 +5,8 @@ Official plugin maintained by MemTensor.
 A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud before each run and **adds** new messages to MemOS Cloud after each run.
 
 ## Features
-- **Recall**: `before_agent_start` → `/search/memory`
-- **Add**: `agent_end` → `/add/message`
+- **Recall**: `before_agent_start` → `/product/search`
+- **Add**: `agent_end` → `/product/add`
 - Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
 
 ## Install
@@ -92,7 +92,7 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_API_KEY` (required; Token auth) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID` (optional; default: `openclaw-user`)
 - `MEMOS_CONVERSATION_ID` (optional override)
-- `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass conversation_id)
+- `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass `session_id`)
 - `MEMOS_MULTI_AGENT_MODE` (default: `false`; enable multi-agent data isolation)
 - `MEMOS_CONVERSATION_PREFIX` / `MEMOS_CONVERSATION_SUFFIX` (optional)
 - `MEMOS_CONVERSATION_SUFFIX_MODE` (`none` | `counter`, default: `none`)
@@ -158,24 +158,24 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
 
 ## How it Works
 - **Recall** (`before_agent_start`)
-  - Builds a `/search/memory` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
-  - Default **global recall**: when `recallGlobal=true`, it does **not** pass `conversation_id`.
+  - Builds a `/product/search` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
+  - Default **global recall**: when `recallGlobal=true`, it does **not** pass `session_id`.
   - Optional second-pass filtering: if `recallFilterEnabled=true`, candidates are sent to your configured model and only returned `keep` items are injected.
   - Injects a stable MemOS recall protocol via `appendSystemContext`, while the retrieved `<memories>` block remains in `prependContext`.
 
 - **Add** (`agent_end`)
-  - Builds a `/add/message` request with the **last turn** by default (user + assistant).
-  - Sends `messages` with `user_id`, `conversation_id`, and optional `tags/info/agent_id/app_id`.
+  - Builds a `/product/add` request with the **last turn** by default (user + assistant).
+  - Sends `messages` with `user_id`, `session_id`, and optional `tags/info/agent_id/app_id`.
 
 ## Multi-Agent Support
 The plugin provides native support for multi-agent architectures (via the `agent_id` parameter):
 - **Enable Mode**: Set `"multiAgentMode": true` in config or `MEMOS_MULTI_AGENT_MODE=true` in env variables (default is `false`).
 - **Dynamic Context**: When enabled, it automatically captures `ctx.agentId` during OpenClaw lifecycle hooks. (Note: the default OpenClaw agent `"main"` is ignored to preserve backwards compatibility for single-agent users).
-- **Data Isolation**: The `agent_id` is automatically injected into both `/search/memory` and `/add/message` requests. This ensures completely isolated memory and message histories for different agents, even under the same user or session.
+- **Data Isolation**: The `agent_id` is automatically injected into both `/product/search` and `/product/add` requests. This ensures completely isolated memory and message histories for different agents, even under the same user or session.
 - **Static Override**: You can also force a specific agent ID by setting `"agentId": "your_agent_id"` in the plugin's `config`.
 
 ## Notes
-- `conversation_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
+- `session_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
 - Optional **prefix/suffix** via env or config; `conversationSuffixMode=counter` increments on `/new` (requires `hooks.internal.enabled`).
 
 ## Acknowledgements

@@ -23,15 +23,15 @@
       },
       "conversationId": {
         "type": "string",
-        "description": "Override conversation_id"
+        "description": "Override session_id"
       },
       "conversationIdPrefix": {
         "type": "string",
-        "description": "conversation_id prefix"
+        "description": "session_id prefix"
       },
       "conversationIdSuffix": {
         "type": "string",
-        "description": "conversation_id suffix"
+        "description": "session_id suffix"
       },
       "conversationSuffixMode": {
         "type": "string",

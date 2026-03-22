@@ -7,8 +7,8 @@
 - **添加记忆**：在每轮对话结束后把消息写回 MemOS Cloud
 
 ## 功能
-- **Recall**：`before_agent_start` → `/search/memory`
-- **Add**：`agent_end` → `/add/message`
+- **Recall**：`before_agent_start` → `/product/search`
+- **Add**：`agent_end` → `/product/add`
 - 使用 **Token** 认证（`Authorization: Token <MEMOS_API_KEY>`）
 
 ## 安装
@@ -94,7 +94,7 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_API_KEY`（必填，Token 认证）—— 获取地址：https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID`（可选，默认 `openclaw-user`）
 - `MEMOS_CONVERSATION_ID`（可选覆盖）
-- `MEMOS_RECALL_GLOBAL`（默认 `true`；为 true 时检索不传 conversation_id）
+- `MEMOS_RECALL_GLOBAL`（默认 `true`；为 true 时检索不传 `session_id`）
 - `MEMOS_MULTI_AGENT_MODE`（默认 `false`；是否开启多 Agent 数据隔离模式）
 - `MEMOS_CONVERSATION_PREFIX` / `MEMOS_CONVERSATION_SUFFIX`（可选）
 - `MEMOS_CONVERSATION_SUFFIX_MODE`（`none` | `counter`，默认 `none`）
@@ -158,17 +158,17 @@ MEMOS_API_KEY=YOUR_TOKEN
 
 ## 工作原理
 ### 1) 召回（before_agent_start）
-- 组装 `/search/memory` 请求
+- 组装 `/product/search` 请求
   - `user_id`、`query`（= prompt + 可选前缀）
-  - 默认**全局召回**：`recallGlobal=true` 时不传 `conversation_id`
+  - 默认**全局召回**：`recallGlobal=true` 时不传 `session_id`
   - 可选 `filter` / `knowledgebase_ids`
 - （可选）若开启 `recallFilterEnabled`，会先把 `memory/preference/tool_memory` 候选发给你配置的模型做二次筛选，只保留 `keep` 的条目
 - 将稳定的 MemOS 召回协议通过 `appendSystemContext` 注入，而检索到的 `<memories>` 数据块继续通过 `prependContext` 注入
 
 ### 2) 添加（agent_end）
 - 默认只写**最后一轮**（user + assistant）
-- 构造 `/add/message` 请求：
-  - `user_id`、`conversation_id`
+- 构造 `/product/add` 请求：
+  - `user_id`、`session_id`
   - `messages` 列表
   - 可选 `tags / info / agent_id / app_id`
 
@@ -176,11 +176,11 @@ MEMOS_API_KEY=YOUR_TOKEN
 插件内置对多Agent模式的支持（`agent_id` 参数）：
 - **开启模式**：需要在配置中设置 `"multiAgentMode": true` 或在环境变量中设置 `MEMOS_MULTI_AGENT_MODE=true`（默认为 `false`）。
 - **动态获取**：开启后，执行生命周期钩子时会自动读取上下文中的 `ctx.agentId`。（注：OpenClaw 的默认 Agent `"main"` 会被自动忽略，以保证老用户的单 Agent 数据兼容性）。
-- **数据隔离**：在调用 `/search/memory`（检索记忆）和 `/add/message`（添加记录）时会自动附带该 `agent_id`，从而保证即使是同一用户下的不同 Agent 之间，记忆和反馈数据也是完全隔离的。
+- **数据隔离**：在调用 `/product/search`（检索记忆）和 `/product/add`（添加记录）时会自动附带该 `agent_id`，从而保证即使是同一用户下的不同 Agent 之间，记忆和反馈数据也是完全隔离的。
 - **静态配置**：如果需要，也可在上述插件的 `config` 中显式指定 `"agentId": "your_agent_id"` 作为固定值。
 
 ## 说明
-- 未显式指定 `conversation_id` 时，默认使用 OpenClaw `sessionKey`。**TODO**：后续考虑直接绑定 OpenClaw `sessionId`。
+- 未显式指定 `session_id` 时，默认使用 OpenClaw `sessionKey`。**TODO**：后续考虑直接绑定 OpenClaw `sessionId`。
 - 可配置前后缀；`conversationSuffixMode=counter` 时会在 `/new` 递增（需 `hooks.internal.enabled`）。
 
 ## 致谢
