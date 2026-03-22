@@ -392,7 +392,7 @@ export default {
   id: "memos-cloud-openclaw-plugin",
   name: "MemOS Cloud OpenClaw Plugin",
   description: "MemOS Cloud recall + add memory via lifecycle hooks",
-  kind: "lifecycle",
+  kind: "memory",
 
   register(api) {
     const cfg = buildConfig(api.pluginConfig);
@@ -427,7 +427,8 @@ export default {
     api.on("before_agent_start", async (event, ctx) => {
       if (!cfg.recallEnabled) return;
       if (!event?.prompt || event.prompt.length < 3) return;
-      if (!cfg.apiKey) {
+      // Self-hosted mode doesn't require API key
+      if (!cfg.apiKey && cfg.serverMode !== "self-hosted") {
         warnMissingApiKey(log, "recall");
         return;
       }
@@ -454,7 +455,8 @@ export default {
     api.on("agent_end", async (event, ctx) => {
       if (!cfg.addEnabled) return;
       if (!event?.success || !event?.messages?.length) return;
-      if (!cfg.apiKey) {
+      // Self-hosted mode doesn't require API key
+      if (!cfg.apiKey && cfg.serverMode !== "self-hosted") {
         warnMissingApiKey(log, "add");
         return;
       }
