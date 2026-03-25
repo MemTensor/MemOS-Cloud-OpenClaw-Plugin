@@ -12,6 +12,7 @@ import { startUpdateChecker } from "./lib/check-update.js";
 let lastCaptureTime = 0;
 const conversationCounters = new Map();
 const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
+const beforeAgentStartProcessed = new Set();
 const ENV_FILE_SEARCH_HINTS = ["~/.openclaw/.env", "~/.moltbot/.env", "~/.clawdbot/.env"];
 const MEMOS_SOURCE = "openclaw";
 
@@ -404,6 +405,7 @@ export default {
   register(api) {
     const cfg = buildConfig(api.pluginConfig);
     const log = api.logger ?? console;
+    log.warn?.("[memos-cloud] ✅ register() called, apiKey present: " + !!cfg.apiKey);
 
     // Start 12-hour background update interval
     startUpdateChecker(log);
@@ -432,13 +434,22 @@ export default {
     }
 
     api.on("before_agent_start", async (event, ctx) => {
-      if (!cfg.recallEnabled) return;
-      const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
-      if (!userPrompt || userPrompt.length < 3) return;
-      if (!cfg.apiKey) {
-        warnMissingApiKey(log, "recall");
+      const sessionKey = ctx?.sessionKey || "unknown";
+      // Guard: prevent double-firing for the same session
+      if (beforeAgentStartProcessed.has(sessionKey)) {
+        log.warn?.(`[memos-cloud] before_agent_start already processed for sessionKey=${sessionKey}, skipping`);
         return;
       }
+      beforeAgentStartProcessed.add(sessionKey);
+      // Auto-cleanup after 30s to handle new sessions with same key
+      setTimeout(() => beforeAgentStartProcessed.delete(sessionKey), 30000);
+
+      log.warn?.(`[memos-cloud] 🔥 before_agent_start hook fired! prompt length=${event?.prompt?.length ?? 0} sessionKey=${sessionKey} recallEnabled=${cfg.recallEnabled}`);
+      if (!cfg.recallEnabled) { log.warn?.("[memos-cloud] recall disabled, skipping"); return; }
+      const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
+      log.warn?.(`[memos-cloud] userPrompt length=${userPrompt.length} apiKey=${!!cfg.apiKey}`);
+      if (!userPrompt || userPrompt.length < 3) { log.warn?.("[memos-cloud] prompt too short, skipping"); return; }
+      if (!cfg.apiKey) { log.warn?.("[memos-cloud] no API key, skipping"); warnMissingApiKey(log, "recall"); return; }
 
       try {
         const payload = buildSearchPayload(cfg, userPrompt, ctx);
@@ -460,7 +471,8 @@ export default {
     });
 
     api.on("agent_end", async (event, ctx) => {
-      if (!cfg.addEnabled) return;
+      log.warn?.(`[memos-cloud] 🔥 agent_end hook fired! success=${event?.success} messages=${event?.messages?.length ?? 0}`);
+      if (!cfg.addEnabled) { log.warn?.("[memos-cloud] add disabled, skipping"); return; }
       if (!event?.success || !event?.messages?.length) return;
       if (!cfg.apiKey) {
         warnMissingApiKey(log, "add");
