@@ -90,9 +90,21 @@ source ~/.bashrc
 MEMOS_API_KEY=YOUR_TOKEN
 ```
 
+**双渠道支持 (云服务 vs 开源版本)**
+本插件同时支持对接 MemOS 云服务和 MemOS 开源项目。
+- **配置为云服务（默认）**：
+  - `MEMOS_BASE_URL`：默认或设置为 `https://memos.memtensor.cn/api/openmem/v1`
+  - `MEMOS_API_KEY`：必填，从云平台获取的 Token。
+  - `MEMOS_API_TYPE`：可选，默认为 `cloud`。
+- **配置为开源项目**：
+  - `MEMOS_BASE_URL`：设置为你本地或私有部署的开源项目 API 地址（例如：`http://127.0.0.1:8008`）
+  - `MEMOS_API_TYPE`：必须显式设置为 `open_source`，或者你的 `BASE_URL` 不包含 `memos.memtensor.cn` 时会自动识别。
+  - `MEMOS_API_KEY`：选填。开源项目默认不强制要求鉴权，如果你配置了此项，将以 `Bearer Token` 的形式发送。
+
 **可选配置**
 - `MEMOS_BASE_URL`（默认 `https://memos.memtensor.cn/api/openmem/v1`）
-- `MEMOS_API_KEY`（必填，Token 认证）—— 获取地址：https://memos-dashboard.openmem.net/cn/apikeys/
+- `MEMOS_API_TYPE`（`cloud` 或 `open_source`，根据 baseUrl 自动推断）
+- `MEMOS_API_KEY`（云服务必填；开源版本选填）—— 获取地址：https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID`（可选，默认 `openclaw-user`）
 - `MEMOS_USE_DIRECT_SESSION_USER_ID`（默认 `false`；开启后，对 `agent:main:<provider>:direct:<peer-id>` 这类私聊 sessionKey，会把 `<peer-id>` 作为 MemOS `user_id`）
 - `MEMOS_CONVERSATION_ID`（可选覆盖）
@@ -122,6 +134,7 @@ MEMOS_API_KEY=YOUR_TOKEN
 ```json
 {
   "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
+  "apiType": "cloud",
   "apiKey": "YOUR_API_KEY",
   "userId": "memos_user_123",
   "useDirectSessionUserId": false,
@@ -139,6 +152,7 @@ MEMOS_API_KEY=YOUR_TOKEN
   "memoryLimitNumber": 6,
   "preferenceLimitNumber": 6,
   "knowledgebaseIds": [],
+  "allowKnowledgebaseIds": [],
   "includePreference": true,
   "includeToolMemory": false,
   "toolMemoryLimitNumber": 6,
@@ -238,6 +252,7 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
           "multiAgentMode": true,
           "allowedAgents": ["default", "research-agent", "coding-agent"],
           "knowledgebaseIds": [],
+          "allowKnowledgebaseIds": [],
           "memoryLimitNumber": 6,
           "relativity": 0.45,
 
@@ -273,7 +288,7 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
 
 | 字段 | 说明 |
 |------|------|
-| `knowledgebaseIds` | `/search/memory` 使用的知识库 ID 列表 |
+| `knowledgebaseIds` | `/search/memory` 使用的知识库 ID 列表（从哪些知识库召回记忆） |
 | `memoryLimitNumber` | 召回的事实记忆最大条数 |
 | `preferenceLimitNumber` | 召回的偏好记忆最大条数 |
 | `includePreference` | 是否启用偏好记忆召回 |
@@ -292,7 +307,7 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
 | `recallFilterModel` | 过滤模型名 |
 | `recallFilterBaseUrl` | 过滤模型接口地址 |
 | `recallFilterApiKey` | 过滤模型鉴权密钥 |
-| `allowKnowledgebaseIds` | `/add/message` 允许写入的知识库 |
+| `allowKnowledgebaseIds` | `/add/message` 允许写入的知识库 ID 列表（配置后，新记忆会被保存到这些指定的知识库中） |
 | `tags` | `/add/message` 标签 |
 | `throttleMs` | 请求节流间隔 |
 

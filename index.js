@@ -83,6 +83,7 @@ function resolveConversationId(cfg, ctx) {
 }
 
 export function buildSearchPayload(cfg, prompt, ctx) {
+  const isCloud = cfg.apiType === "cloud";
   const cleanPrompt = stripOpenClawInjectedPrefix(prompt);
   const queryRaw = `${cfg.queryPrefix || ""}${cleanPrompt}`;
   const query =
@@ -96,52 +97,99 @@ export function buildSearchPayload(cfg, prompt, ctx) {
     source: MEMOS_SOURCE,
   };
 
+  if (!isCloud) {
+    payload.mode = "mixture";
+    payload.internet_search = false;
+  }
+
   if (!cfg.recallGlobal) {
     const conversationId = resolveConversationId(cfg, ctx);
-    if (conversationId) payload.conversation_id = conversationId;
+    if (conversationId) {
+      if (isCloud) {
+        payload.conversation_id = conversationId;
+      } else {
+        payload.session_id = conversationId;
+      }
+    }
   }
 
   let filterObj = cfg.filter ? JSON.parse(JSON.stringify(cfg.filter)) : null;
   const agentId = getEffectiveAgentId(cfg, ctx);
 
   if (agentId) {
+    const agentFilter = isCloud 
+      ? { agent_id: agentId } 
+      : { info: { agentId: `${agentId}` } };
+
     if (filterObj) {
       if (Array.isArray(filterObj.and)) {
-        filterObj.and.push({ agent_id: agentId });
+        filterObj.and.push(agentFilter);
       } else {
-        filterObj = { and: [filterObj, { agent_id: agentId }] };
+        filterObj = { and: [filterObj, agentFilter] };
       }
     } else {
-      filterObj = { agent_id: agentId };
+      filterObj = { and: [agentFilter] };
     }
   }
 
   if (filterObj) payload.filter = filterObj;
 
-  if (cfg.knowledgebaseIds?.length) payload.knowledgebase_ids = cfg.knowledgebaseIds;
+  if (cfg.knowledgebaseIds?.length) {
+    if (isCloud) {
+      payload.knowledgebase_ids = cfg.knowledgebaseIds;
+    } else {
+      payload.readable_cube_ids = Array.from(new Set([payload.user_id, ...cfg.knowledgebaseIds]));
+    }
+  }
 
-  payload.memory_limit_number = cfg.memoryLimitNumber;
-  payload.include_preference = cfg.includePreference;
-  payload.preference_limit_number = cfg.preferenceLimitNumber;
-  payload.include_tool_memory = cfg.includeToolMemory;
-  payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
-  payload.relativity = cfg.relativity;
+  if (isCloud) {
+    payload.memory_limit_number = cfg.memoryLimitNumber;
+    payload.include_preference = cfg.includePreference;
+    payload.preference_limit_number = cfg.preferenceLimitNumber;
+    payload.include_tool_memory = cfg.includeToolMemory;
+    payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
+    payload.relativity = cfg.relativity;
+  } else {
+    payload.top_k = cfg.memoryLimitNumber;
+    payload.include_preference = cfg.includePreference;
+    payload.pref_top_k = cfg.preferenceLimitNumber;
+    payload.search_tool_memory = cfg.includeToolMemory;
+    payload.tool_mem_top_k = cfg.toolMemoryLimitNumber;
+    payload.threshold = cfg.relativity;
+  }
 
   return payload;
 }
 
 export function buildAddMessagePayload(cfg, messages, ctx) {
+  const isCloud = cfg.apiType === "cloud";
+  const conversationId = resolveConversationId(cfg, ctx);
+  
   const payload = {
     user_id: resolveMemosUserId(cfg, ctx),
-    conversation_id: resolveConversationId(cfg, ctx),
     messages,
     source: MEMOS_SOURCE,
   };
 
+  if (isCloud) {
+    payload.conversation_id = conversationId;
+    payload.async_mode = cfg.asyncMode;
+    payload.allow_public = cfg.allowPublic;
+  } else {
+    payload.session_id = conversationId;
+    payload.async_mode = cfg.asyncMode === false ? "sync" : "async";
+  }
+
   const agentId = getEffectiveAgentId(cfg, ctx);
-  if (agentId) payload.agent_id = agentId;
-  if (cfg.appId) payload.app_id = cfg.appId;
-  if (cfg.tags?.length) payload.tags = cfg.tags;
+  
+  if (isCloud) {
+    if (agentId) payload.agent_id = agentId;
+    if (cfg.appId) payload.app_id = cfg.appId;
+    if (cfg.tags?.length) payload.tags = cfg.tags;
+  } else {
+    const customTags = [...(cfg.tags || [])];
+    if (customTags.length) payload.custom_tags = customTags;
+  }
 
   const info = {
     source: "openclaw",
@@ -151,9 +199,13 @@ export function buildAddMessagePayload(cfg, messages, ctx) {
   };
   if (Object.keys(info).length > 0) payload.info = info;
 
-  payload.allow_public = cfg.allowPublic;
-  if (cfg.allowKnowledgebaseIds?.length) payload.allow_knowledgebase_ids = cfg.allowKnowledgebaseIds;
-  payload.async_mode = cfg.asyncMode;
+  if (cfg.allowKnowledgebaseIds?.length) {
+    if (isCloud) {
+      payload.allow_knowledgebase_ids = cfg.allowKnowledgebaseIds;
+    } else {
+      payload.writable_cube_ids = Array.from(new Set([payload.user_id, ...cfg.allowKnowledgebaseIds]));
+    }
+  }
 
   return payload;
 }
@@ -466,7 +518,7 @@ export default {
       if (!agentCfg.recallEnabled) return;
       const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
       if (!userPrompt || userPrompt.length < 3) return;
-      if (!agentCfg.apiKey) {
+      if (agentCfg.apiType === "cloud" && !agentCfg.apiKey) {
         warnMissingApiKey(log, "recall");
         return;
       }
@@ -498,7 +550,7 @@ export default {
       const agentCfg = resolveAgentConfig(cfg, ctx?.agentId);
       if (!agentCfg.addEnabled) return;
       if (!event?.success || !event?.messages?.length) return;
-      if (!agentCfg.apiKey) {
+      if (agentCfg.apiType === "cloud" && !agentCfg.apiKey) {
         warnMissingApiKey(log, "add");
         return;
       }

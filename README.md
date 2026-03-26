@@ -88,9 +88,21 @@ If `MEMOS_API_KEY` is missing, the plugin will warn with setup instructions and 
 MEMOS_API_KEY=YOUR_TOKEN
 ```
 
+**Dual Channel Support (Cloud vs Open Source)**
+This plugin supports connecting to both MemOS Cloud and the MemOS Open Source project.
+- **Configure for Cloud (Default)**:
+  - `MEMOS_BASE_URL`: Leave default or set to `https://memos.memtensor.cn/api/openmem/v1`
+  - `MEMOS_API_KEY`: Required. Get from MemOS dashboard.
+  - `MEMOS_API_TYPE`: Optional, defaults to `cloud`.
+- **Configure for Open Source**:
+  - `MEMOS_BASE_URL`: Set to your local/private open source deployment API (e.g. `http://127.0.0.1:8008`)
+  - `MEMOS_API_TYPE`: Set to `open_source`. (Will be auto-detected if `BASE_URL` doesn't contain `memos.memtensor.cn`)
+  - `MEMOS_API_KEY`: Optional. Open source does not strictly require auth. If provided, it will be sent as a `Bearer Token`.
+
 **Optional config**
 - `MEMOS_BASE_URL` (default: `https://memos.memtensor.cn/api/openmem/v1`)
-- `MEMOS_API_KEY` (required; Token auth) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
+- `MEMOS_API_TYPE` (`cloud` or `open_source`, auto-inferred from baseUrl)
+- `MEMOS_API_KEY` (required for Cloud; optional for Open Source) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID` (optional; default: `openclaw-user`)
 - `MEMOS_USE_DIRECT_SESSION_USER_ID` (default: `false`; when enabled, direct session keys like `agent:main:<provider>:direct:<peer-id>` use `<peer-id>` as MemOS `user_id`)
 - `MEMOS_CONVERSATION_ID` (optional override)
@@ -120,6 +132,7 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
 ```json
 {
   "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
+  "apiType": "cloud",
   "apiKey": "YOUR_API_KEY",
   "userId": "memos_user_123",
   "useDirectSessionUserId": false,
@@ -136,6 +149,7 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "conversationSuffixMode": "none",
   "resetOnNew": true,
   "knowledgebaseIds": [],
+  "allowKnowledgebaseIds": [],
   "memoryLimitNumber": 6,
   "preferenceLimitNumber": 6,
   "includePreference": true,
@@ -233,6 +247,7 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
           "multiAgentMode": true,
           "allowedAgents": ["default", "research-agent", "coding-agent"],
           "knowledgebaseIds": [],
+          "allowKnowledgebaseIds": [],
           "memoryLimitNumber": 6,
           "relativity": 0.45,
 
@@ -268,7 +283,7 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
 
 | Field | Description |
 |-------|-------------|
-| `knowledgebaseIds` | Knowledge base IDs for `/search/memory` |
+| `knowledgebaseIds` | Knowledge base IDs for `/search/memory` (where to recall from) |
 | `memoryLimitNumber` | Max memory items to recall |
 | `preferenceLimitNumber` | Max preference items to recall |
 | `includePreference` | Enable preference recall |
@@ -287,7 +302,7 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
 | `recallFilterModel` | Model for recall filtering |
 | `recallFilterBaseUrl` | Base URL for recall filter model |
 | `recallFilterApiKey` | API key for recall filter |
-| `allowKnowledgebaseIds` | Knowledge bases for `/add/message` |
+| `allowKnowledgebaseIds` | Knowledge bases for `/add/message` (where to save new memories) |
 | `tags` | Tags for `/add/message` |
 | `throttleMs` | Throttle interval |
 
