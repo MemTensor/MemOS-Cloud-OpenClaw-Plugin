@@ -4,7 +4,6 @@
   "description": "MemOS Cloud recall + add memory via lifecycle hooks",
   "version": "0.1.13",
   "kind": "lifecycle",
-  "main": "./index.js",
   "configSchema": {
     "type": "object",
     "properties": {
