@@ -12,6 +12,15 @@
 - **Config UI**：启动 gateway 时同时启动本地插件配置页面，用来编辑 `plugins.entries.memos-cloud-openclaw-plugin.config`
 - 使用 **Token** 认证（`Authorization: Token <MEMOS_API_KEY>`）
 
+## 可选 X/Twitter 来源工作流
+MemOS Cloud 负责保存和召回对话记忆，本身不采集 X/Twitter 数据。如果同一个 OpenClaw agent 还需要公共 X/Twitter 来源素材，可以把 [TweetClaw](https://github.com/Xquik-dev/tweetclaw) 与本插件一起安装：
+
+```bash
+openclaw plugins install @xquik/tweetclaw@latest
+```
+
+TweetClaw 可用于 scrape tweets、search tweets、search tweet replies、export followers、user lookup、media workflows、monitor tweets、webhooks、giveaway draws，以及经过确认的 post tweets 或 post tweet replies。随后让 MemOS Cloud 像普通对话一样保存分析结果、source URLs、tweet IDs、决策和后续动作。
+
 ## 配置页面
 - Gateway 启动后，插件会同时拉起一个本地配置页面，并在终端输出访问地址（默认：`http://127.0.0.1:38463`）。
 - 页面会直接读取并写回当前宿主的配置文件：

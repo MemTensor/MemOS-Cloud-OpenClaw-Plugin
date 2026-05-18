@@ -10,6 +10,15 @@ A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud b
 - **Config UI**: starting the gateway also starts a local plugin config page for editing `plugins.entries.memos-cloud-openclaw-plugin.config`
 - Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
 
+## Optional X/Twitter Source Workflows
+MemOS Cloud stores and recalls conversation memory, not X/Twitter data by itself. If your OpenClaw agent also needs public X/Twitter source material, install [TweetClaw](https://github.com/Xquik-dev/tweetclaw) beside this plugin:
+
+```bash
+openclaw plugins install @xquik/tweetclaw@latest
+```
+
+Use TweetClaw to scrape tweets, search tweets, search tweet replies, export followers, look up users, work with media, monitor tweets, receive webhooks, run giveaway draws, and send approval-gated tweet posts or replies. Then let MemOS Cloud capture the analysis, source URLs, tweet IDs, decisions, and next actions as normal conversation memory.
+
 ## Config UI
 - On gateway start, the plugin launches a local config page and prints the URL in the terminal (default: `http://127.0.0.1:38463`).
 - The page reads and writes the host config file directly:
