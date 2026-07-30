@@ -510,6 +510,46 @@ test("fails closed when a draft contains only release-automation evidence", () =
   assert.ok(processed.validation_report.issues.some((issue) => issue.kind === "empty_release_items"));
 });
 
+test("describes removal of the retired recall hook fallback", () => {
+  const commit = {
+    sha: "abc1234000000000000000000000000000000000",
+    short_sha: "abc1234",
+    subject: "fix: use before_prompt_build recall hook",
+  };
+  const processed = postprocessDraftFromEvidence(
+    {
+      ok: true,
+      needs_review: false,
+      release_items: [
+        {
+          category: "Fixed",
+          text_cn: "**召回 Hook 修复**：更新 OpenClaw 召回 Hook。",
+          text_en: "**Recall hook fix**: Updates the OpenClaw recall hook.",
+          source_refs: ["abc1234"],
+        },
+      ],
+      coverage: { required_count: 1, covered_required_count: 1, missing_required_count: 0 },
+      warnings: [],
+    },
+    {
+      commits: [commit],
+      release_note_guidance: {
+        source_ref_category_hints: [
+          {
+            category: "Fixed",
+            source_refs: ["abc1234"],
+            subject: commit.subject,
+          },
+        ],
+      },
+    },
+  );
+
+  assert.equal(processed.ok, true);
+  assert.match(processed.release_notes_markdown, /Recall Hook 对齐当前 OpenClaw/);
+  assert.match(processed.release_notes_markdown, /removes the retired `before_agent_start` fallback/);
+});
+
 test("splits collapsed multi-ref historical drafts into docs-ready cloud plugin topics", () => {
   const commits = [
     {

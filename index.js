@@ -17,6 +17,7 @@ import { startUpdateChecker } from "./lib/check-update.js";
 import {
   closeConfigUiService,
   compareVersionStrings,
+  detectRuntimeProfile,
   detectHostVersion,
   ensureConfigUiService,
   ensurePluginHookPolicy,
@@ -718,6 +719,7 @@ export default {
 
     // Detect the host CLI version once so every hook registration branch can reference it.
     const hostVersion = detectHostVersion();
+    const hostProfile = detectRuntimeProfile();
 
     // Side effects below are only meaningful when the host CLI was actually
     // launched to run the gateway (`openclaw gateway run|start|restart`).
@@ -843,19 +845,12 @@ export default {
       }
     };
 
-    // Recall mutates prompt context only, so the phase-specific replacement for
-    // legacy before_agent_start is before_prompt_build. Do not register both on
-    // new hosts, otherwise the same memory block can be injected twice.
-    const PROMPT_BUILD_HOOK_MIN_VERSION = "2026.5.7";
-    const usesBeforePromptBuild =
-      hostVersion !== null &&
-      compareVersionStrings(hostVersion, PROMPT_BUILD_HOOK_MIN_VERSION) >= 0;
-
-    if (usesBeforePromptBuild) {
-      api.on("before_prompt_build", runRecall);
-    } else {
-      api.on("before_agent_start", runRecall);
-    }
+    // Current OpenClaw hosts use the prompt-build phase. The package still
+    // advertises Moltbot and ClawDBot entrypoints, which only expose the legacy hook.
+    api.on(
+      hostProfile.id === "openclaw" ? "before_prompt_build" : "before_agent_start",
+      runRecall,
+    );
 
     api.on("agent_end", async (event, ctx) => {
       // Skip system events: heartbeat and commands

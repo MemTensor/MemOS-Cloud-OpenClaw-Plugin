@@ -597,6 +597,16 @@ function knownReleaseItemsForItem(item, index, { allowSplit = true } = {}) {
   const systemPromptPattern =
     /system prompt detection and handling|scheduled task|scheduled reminder|background command|system event|isforcedsystemmessage|system prompt/;
 
+  if (/remove.*before_agent_start|retired.*before_agent_start|use before_prompt_build.*recall hook/.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Fixed",
+        "**Recall Hook 对齐当前 OpenClaw**：统一使用 `before_prompt_build` 注入召回上下文，并移除已废弃的 `before_agent_start` 回退。",
+        "**Recall Hook aligned with current OpenClaw**: Uses `before_prompt_build` for recalled context and removes the retired `before_agent_start` fallback.",
+      ),
+    ];
+  }
+
   if (/recall hook registration.*before_prompt_build|before_prompt_build.*newer openclaw|version compatibility/.test(subjectBlob)) {
     return [
       rewrite(
