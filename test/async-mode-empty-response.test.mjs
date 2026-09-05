@@ -79,18 +79,25 @@ test("callApi: HTTP 202 with JSON body returns parsed result", async () => {
   }
 });
 
-test("callApi: HTTP 200 with non-JSON body does not throw", async () => {
+test("callApi: HTTP 200 with non-JSON body throws error", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
     return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
   };
 
   try {
-    const result = await addMessage(
-      { apiKey: "mpg-test", baseUrl: "http://memos.test", timeoutMs: 1000, retries: 0 },
-      { messages: [{ role: "user", content: "hello" }] },
+    await assert.rejects(
+      async () => {
+        await addMessage(
+          { apiKey: "mpg-test", baseUrl: "http://memos.test", timeoutMs: 1000, retries: 0 },
+          { messages: [{ role: "user", content: "hello" }] },
+        );
+      },
+      {
+        message: /Invalid JSON response/,
+      },
+      "non-JSON 200 body should throw an error",
     );
-    assert.deepEqual(result, {}, "non-JSON 200 body should return {}");
   } finally {
     globalThis.fetch = originalFetch;
   }
