@@ -5,7 +5,10 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
-import { captureTurn } from '../src/capture.ts'
+import { captureTurn, readSessionEvents } from '../src/capture.ts'
+
+// Fixture positions are admitted here; old hosts do not export SessionSeq().
+const seq = (value: number): SessionEvent['seq'] => value as SessionEvent['seq']
 
 const priorUser = createUserMessage({
   source: { kind: 'user' },
@@ -45,20 +48,25 @@ const toolResult = createToolResultMessage({
 })
 
 const events: SessionEvent[] = [
-  { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-  { type: 'user/message', seq: 1, time: 1100, data: priorUser, surfaceOp: 'append' },
-  { type: 'turn/end', seq: 2, time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
-  { type: 'turn/start', seq: 3, time: 2000, data: { turn: 2 } },
-  { type: 'user/message', seq: 4, time: 2100, data: recall, surfaceOp: 'append' },
-  { type: 'user/message', seq: 5, time: 2200, data: directUser, surfaceOp: 'append' },
-  { type: 'assistant/message', seq: 6, time: 2300, data: { turn: 2, step: 1, message: firstAssistant }, surfaceOp: 'append' },
-  { type: 'tool/result', seq: 7, time: 2400, data: { turn: 2, step: 1, message: toolResult }, surfaceOp: 'append' },
-  { type: 'assistant/message', seq: 8, time: 2500, data: { turn: 2, step: 2, message: secondAssistant }, surfaceOp: 'append' },
-  { type: 'assistant/message', seq: 9, time: 2600, data: { turn: 2, step: 3, message: emptyAssistant }, surfaceOp: 'append' },
-  { type: 'turn/end', seq: 10, time: 2700, data: { turn: 2, reason: { kind: 'completed' } } },
+  { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+  { type: 'user/message', seq: seq(1), time: 1100, data: priorUser, surfaceOp: 'append' },
+  { type: 'turn/end', seq: seq(2), time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
+  { type: 'turn/start', seq: seq(3), time: 2000, data: { turn: 2 } },
+  { type: 'user/message', seq: seq(4), time: 2100, data: recall, surfaceOp: 'append' },
+  { type: 'user/message', seq: seq(5), time: 2200, data: directUser, surfaceOp: 'append' },
+  { type: 'assistant/message', seq: seq(6), time: 2300, data: { turn: 2, step: 1, message: firstAssistant }, surfaceOp: 'append' },
+  { type: 'tool/result', seq: seq(7), time: 2400, data: { turn: 2, step: 1, message: toolResult }, surfaceOp: 'append' },
+  { type: 'assistant/message', seq: seq(8), time: 2500, data: { turn: 2, step: 2, message: secondAssistant }, surfaceOp: 'append' },
+  { type: 'assistant/message', seq: seq(9), time: 2600, data: { turn: 2, step: 3, message: emptyAssistant }, surfaceOp: 'append' },
+  { type: 'turn/end', seq: seq(10), time: 2700, data: { turn: 2, reason: { kind: 'completed' } } },
 ]
 
 describe('captureTurn', () => {
+  it('reads current immutable snapshots and legacy session event arrays', () => {
+    expect(readSessionEvents({ events })).toBe(events)
+    expect(readSessionEvents({ snapshotEvents() { return events }, get events(): never { throw new Error('legacy accessor used') } })).toBe(events)
+  })
+
   it('captures only the matching completed turn in durable event order', () => {
     expect(captureTurn(events, 10, {
       includeAssistant: true,
@@ -162,9 +170,9 @@ describe('captureTurn', () => {
 
   it('rejects failed/non-completed turns', () => {
     const failed: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-      { type: 'user/message', seq: 1, time: 1100, data: directUser, surfaceOp: 'append' },
-      { type: 'turn/end', seq: 2, time: 1200, data: { turn: 1, reason: { kind: 'blocked' } } },
+      { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+      { type: 'user/message', seq: seq(1), time: 1100, data: directUser, surfaceOp: 'append' },
+      { type: 'turn/end', seq: seq(2), time: 1200, data: { turn: 1, reason: { kind: 'blocked' } } },
     ]
 
     expect(captureTurn(failed, 2, {
@@ -182,9 +190,9 @@ describe('captureTurn', () => {
     })).toBeUndefined()
 
     const pluginOnly: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-      { type: 'user/message', seq: 1, time: 1100, data: recall, surfaceOp: 'append' },
-      { type: 'turn/end', seq: 2, time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+      { type: 'user/message', seq: seq(1), time: 1100, data: recall, surfaceOp: 'append' },
+      { type: 'turn/end', seq: seq(2), time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     expect(captureTurn(pluginOnly, 2, {
       includeAssistant: true,
@@ -208,11 +216,11 @@ describe('captureTurn', () => {
       isError: false,
     })
     const unicodeEvents: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-      { type: 'user/message', seq: 1, time: 1100, data: unicodeUser, surfaceOp: 'append' },
-      { type: 'assistant/message', seq: 2, time: 1150, data: { turn: 1, step: 1, message: unicodeToolCall }, surfaceOp: 'append' },
-      { type: 'tool/result', seq: 3, time: 1175, data: { turn: 1, step: 1, message: unicodeToolResult }, surfaceOp: 'append' },
-      { type: 'turn/end', seq: 4, time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+      { type: 'user/message', seq: seq(1), time: 1100, data: unicodeUser, surfaceOp: 'append' },
+      { type: 'assistant/message', seq: seq(2), time: 1150, data: { turn: 1, step: 1, message: unicodeToolCall }, surfaceOp: 'append' },
+      { type: 'tool/result', seq: seq(3), time: 1175, data: { turn: 1, step: 1, message: unicodeToolResult }, surfaceOp: 'append' },
+      { type: 'turn/end', seq: seq(4), time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
 
     const captured = captureTurn(unicodeEvents, 4, {
@@ -230,18 +238,18 @@ describe('captureTurn', () => {
       content: [{ type: 'text', text: 'replacement summary' }],
     })
     const replacementEvents: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-      { type: 'user/message', seq: 1, time: 1100, data: directUser, surfaceOp: 'append' },
-      { type: 'assistant/message', seq: 2, time: 1150, data: { turn: 1, step: 1, message: secondAssistant }, surfaceOp: 'append' },
+      { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+      { type: 'user/message', seq: seq(1), time: 1100, data: directUser, surfaceOp: 'append' },
+      { type: 'assistant/message', seq: seq(2), time: 1150, data: { turn: 1, step: 1, message: secondAssistant }, surfaceOp: 'append' },
       {
         type: 'assistant/message',
-        seq: 3,
+        seq: seq(3),
         time: 1175,
         data: { turn: 1, step: 2, message: replacement },
-        sourceEventSeqs: [2],
-        surfaceOp: { op: 'replace', start: 2, end: 2 },
+        sourceEventSeqs: [seq(2)],
+        surfaceOp: { op: 'replace', start: seq(2), end: seq(2) },
       },
-      { type: 'turn/end', seq: 4, time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: seq(4), time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
 
     expect(captureTurn(replacementEvents, 4, {
@@ -284,13 +292,13 @@ describe('captureTurn', () => {
       isError: false,
     })
     const pairedEvents: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1000, data: { turn: 1 } },
-      { type: 'user/message', seq: 1, time: 1100, data: directUser, surfaceOp: 'append' },
-      { type: 'assistant/message', seq: 2, time: 1150, data: { turn: 1, step: 1, message: imageCall }, surfaceOp: 'append' },
-      { type: 'tool/result', seq: 3, time: 1170, data: { turn: 1, step: 1, message: imageResult }, surfaceOp: 'append' },
-      { type: 'tool/result', seq: 4, time: 1180, data: { turn: 1, step: 1, message: duplicateResult }, surfaceOp: 'append' },
-      { type: 'tool/result', seq: 5, time: 1190, data: { turn: 1, step: 1, message: unmatchedResult }, surfaceOp: 'append' },
-      { type: 'turn/end', seq: 6, time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+      { type: 'user/message', seq: seq(1), time: 1100, data: directUser, surfaceOp: 'append' },
+      { type: 'assistant/message', seq: seq(2), time: 1150, data: { turn: 1, step: 1, message: imageCall }, surfaceOp: 'append' },
+      { type: 'tool/result', seq: seq(3), time: 1170, data: { turn: 1, step: 1, message: imageResult }, surfaceOp: 'append' },
+      { type: 'tool/result', seq: seq(4), time: 1180, data: { turn: 1, step: 1, message: duplicateResult }, surfaceOp: 'append' },
+      { type: 'tool/result', seq: seq(5), time: 1190, data: { turn: 1, step: 1, message: unmatchedResult }, surfaceOp: 'append' },
+      { type: 'turn/end', seq: seq(6), time: 1200, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
 
     const captured = captureTurn(pairedEvents, 6, {

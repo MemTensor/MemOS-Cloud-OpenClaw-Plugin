@@ -2,10 +2,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MemosClient } from '@memtensor/memos-cloud-plugin-core'
 import type { MemosAddRequest } from '@memtensor/memos-cloud-plugin-core'
-import { captureTurn } from './capture.ts'
+import { captureTurn, readSessionEvents } from './capture.ts'
 import {
   Config as ConfigSchema,
   normalizeConfig,
@@ -35,7 +35,7 @@ export type {
   MemosLifecycleDependencies,
 } from './lifecycle-types.ts'
 
-export const MEMOS_SETTINGS_NAMESPACE = settingsNamespace('memos-cloud')
+export const MEMOS_SETTINGS_NAMESPACE = 'memos-cloud' as SettingsNamespace
 
 const isSubagent = (session: Session): boolean => session.header.origin === 'subagent'
 
@@ -101,14 +101,19 @@ export const installMemosLifecycle = (
     return task
   }
 
-  installSettingsSection(ctx, MEMOS_SETTINGS_NAMESPACE, ConfigSchema, entry, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: () => {},
-    validate: (value) => {
-      normalizeConfig(value, launchEnvironment)
-    },
+  // register() is shared by the old and current settings services. The old
+  // module-level installSettingsSection/settingsNamespace exports were removed.
+  ctx.inject(['settings'], (settingsCtx) => {
+    const scope = settingsCtx.settings.register(MEMOS_SETTINGS_NAMESPACE, ConfigSchema, {
+      base: entry,
+      validate: (value) => {
+        normalizeConfig(value, launchEnvironment)
+      },
+    })
+    current = () => scope.get()
+    settingsCtx.effect(() => () => {
+      current = () => entry
+    })
   })
 
   const handlePreStep = async (
@@ -142,7 +147,7 @@ export const installMemosLifecycle = (
       })
       if (projection === undefined) return decision
       return {
-        kind: 'enter',
+        ...decision,
         messages: insertRecallBeforeDirectUser(decision.messages, createRecallMessage(projection)),
       }
     } catch (error) {
@@ -169,7 +174,7 @@ export const installMemosLifecycle = (
     if (isSubagent(session) && !config.includeSubagents) return
     const seen = processedTurns.get(session) ?? new Set<number>()
     if (seen.has(event.data.turn)) return
-    const messages = captureTurn(session.events, event.seq, {
+    const messages = captureTurn(readSessionEvents(session), event.seq, {
       includeAssistant: config.includeAssistant,
       includeToolMemory: config.includeToolMemory,
       maxMessageChars: config.maxMessageChars,

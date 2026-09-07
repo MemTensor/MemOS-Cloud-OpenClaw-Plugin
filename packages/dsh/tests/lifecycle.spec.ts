@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createAssistantMessage, createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   SESSION_FORMAT_VERSION,
   Session,
@@ -34,6 +35,7 @@ const createSession = (idText: string, options: { subagent?: boolean; agentPrese
     version: SESSION_FORMAT_VERSION,
     id,
     createdAt: 1000,
+    isSeeded: false,
     ...(options.subagent ? { origin: 'subagent' as const, delegationDepth: 1 } : {}),
     ...(options.agentPreset === undefined ? {} : { agentPreset: options.agentPreset }),
   }
@@ -122,6 +124,17 @@ const appendTurn = (
 }
 
 describe('pre-step lifecycle', () => {
+  it('preserves the host request-series boundary when adding recall', async () => {
+    const harness = setup()
+    const messages = [userMessage('new request series')]
+    const { result } = await dispatchPreStep(harness, createSession('request-series'), messages, {
+      decision: { kind: 'enter', messages, startsRequestSeries: true },
+    })
+    expect(result).toMatchObject({ kind: 'enter', startsRequestSeries: true })
+    if (result.kind !== 'enter') throw new Error('expected enter')
+    expect(result.messages).toHaveLength(2)
+  })
+
   it('calls next once, searches on step 1 and inserts recall before direct user', async () => {
     const harness = setup()
     const session = createSession('session-1')
@@ -226,6 +239,50 @@ describe('pre-step lifecycle', () => {
 
     expect(harness.search).not.toHaveBeenCalled()
     expect(enabled.search).not.toHaveBeenCalled()
+  })
+})
+
+class TestSettings extends SettingsProvider {
+  readonly writable = true
+
+  protected async load(): Promise<Record<string, unknown>> {
+    return { 'memos-cloud': { userId: 'settings-user' } }
+  }
+
+  protected async persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {}
+}
+
+describe('real settings provider lifecycle', () => {
+  it('merges settings, applies edits, validates writes and falls back after provider reload', async () => {
+    const harness = setup({ userId: 'entry-user', queryPrefix: 'entry-prefix ' })
+    const provider = await harness.ctx.plugin(TestSettings)
+    try {
+      await vi.waitFor(() => expect(harness.ctx.settings.get('memos-cloud')).toMatchObject({
+        userId: 'settings-user', queryPrefix: 'entry-prefix ',
+      }))
+      const recall = async () => dispatchPreStep(harness, createSession('settings'), [userMessage('question')])
+      await recall()
+      expect(harness.search).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 'settings-user' }), expect.any(AbortSignal))
+      await harness.ctx.settings.update('memos-cloud', { userId: 'updated-user', recallEnabled: false })
+      await recall()
+      expect(harness.search).toHaveBeenCalledTimes(1)
+      await expect(harness.ctx.settings.update('memos-cloud', {
+        filter: { knowledgebase: { category: 'test' } },
+      })).rejects.toThrow('knowledgebaseIds')
+      await harness.ctx.settings.replace('memos-cloud', { userId: 'updated-user' })
+      await recall()
+      expect(harness.search).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 'updated-user' }), expect.any(AbortSignal))
+      await provider.dispose()
+      await recall()
+      expect(harness.search).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 'entry-user' }), expect.any(AbortSignal))
+      const reloaded = await harness.ctx.plugin(TestSettings)
+      await vi.waitFor(() => expect(harness.ctx.settings.get('memos-cloud')).toMatchObject({ userId: 'settings-user' }))
+      await recall()
+      expect(harness.search).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 'settings-user' }), expect.any(AbortSignal))
+      await reloaded.dispose()
+    } finally {
+      await harness.ctx.fiber.dispose()
+    }
   })
 })
 

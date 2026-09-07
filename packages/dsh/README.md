@@ -72,17 +72,33 @@ npx @deepseek-ai/dsh web
 
 ## Configuration
 
-### 1. API Key Credential
+### 1. API Key and User ID via `.env` (Recommended)
 
 Create a MemOS API key at [MemOS Dashboard](https://memos-dashboard.openmem.net/cn/apikeys/).
 
-DSH credential file: **`~/.dsh/.credentials.yaml`**
+Create or edit **`~/.dsh/.env`** in the DSH configuration directory:
 
-Add the API key:
+```dotenv
+MEMOS_API_KEY=mpg-your-key
+MEMOS_USER_ID=your-stable-user-id
+```
+
+Use a stable, distinct `MEMOS_USER_ID` for each user's memories. The plugin uses this same ID for both recall and add. If it is omitted, the default is `deepseek-harness-user`.
+
+DSH reads `~/.dsh/.env` by default. It also reads `.env` from the directory where you run the `dsh` command, which takes precedence.
+
+Restart DSH after changing `.env`; its environment values are loaded at startup.
+
+Alternatively, store the API key in **`~/.dsh/.credentials.yaml`** under `refs`. Add it to the existing mapping and preserve other credentials and `records`:
 
 ```yaml
-MEMOS_API_KEY: mpg-your-key
+version: 1
+refs:
+  MEMOS_API_KEY: mpg-your-key
+records: {}
 ```
+
+Configure the user ID using either `MEMOS_USER_ID` in `.env` or `memos-cloud.userId` in `settings.yaml`, described below.
 
 ### 2. Plugin Settings
 
@@ -94,6 +110,14 @@ DSH plugin settings file: **`~/.dsh/settings.yaml`**
 memos-cloud:
   apiKeyEnv: MEMOS_API_KEY
 ```
+
+Keep the API key and user ID in `.env` as shown above; configure ordinary plugin options such as `baseURL`, recall, and add in `settings.yaml`.
+
+**Configuration precedence**
+
+For an option with multiple supported sources, precedence is, highest first: values entered directly in `settings.yaml` → inherited process environment → credentials in `~/.dsh/.credentials.yaml` → launch-directory `.env` → `~/.dsh/.env` → plugin defaults.
+
+The credentials file applies only to the API key. Set `apiKeyEnv` to the credential name (default: `MEMOS_API_KEY`), and store the actual key in `.env` or `.credentials.yaml`.
 
 **Optional config**
 
@@ -152,7 +176,7 @@ Because the preset selects `agent_id` per Session, do not also set a fixed `agen
 
 ## Compatibility
 
-- DeepSeek Harness: `0.1.0-rc.6`
+- DeepSeek Harness: tested with `0.1.2-rc.1` and `0.1.0-rc.6`
 - Node.js: `^22.19.0 || >=24.0.0`
 - MemOS Cloud API: `/api/openmem/v1`
 
