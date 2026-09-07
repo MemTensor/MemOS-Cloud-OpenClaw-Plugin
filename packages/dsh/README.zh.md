@@ -72,17 +72,33 @@ npx @deepseek-ai/dsh web
 
 ## 配置
 
-### 1. API Key 凭据
+### 1. 通过 `.env` 配置 API Key 和 User ID（推荐）
 
 在 [MemOS Dashboard](https://memos-dashboard.openmem.net/cn/apikeys/) 创建 API Key。
 
-DSH 凭据文件：**`~/.dsh/.credentials.yaml`**
+在 DSH 配置目录创建或编辑 **`~/.dsh/.env`**：
 
-写入 API Key：
+```dotenv
+MEMOS_API_KEY=mpg-your-key
+MEMOS_USER_ID=your-stable-user-id
+```
+
+为每位用户设置稳定且不同的 `MEMOS_USER_ID`，插件会使用同一个 ID 召回和写入该用户的记忆。不配置时默认使用 `deepseek-harness-user`。
+
+DSH 默认读取 `~/.dsh/.env`；执行 `dsh` 命令时所在目录的 `.env` 也会被读取，且优先级更高。
+
+修改 `.env` 后需要重启 DSH，环境变量在启动时读取。
+
+也可以将 API Key 放在 **`~/.dsh/.credentials.yaml`** 的 `refs` 下。请添加到现有映射中，保留其他凭据和 `records`：
 
 ```yaml
-MEMOS_API_KEY: mpg-your-key
+version: 1
+refs:
+  MEMOS_API_KEY: mpg-your-key
+records: {}
 ```
+
+User ID 可以通过 `.env` 中的 `MEMOS_USER_ID` 配置，也可以通过下方介绍的 `settings.yaml` 中的 `memos-cloud.userId` 配置。
 
 ### 2. 插件参数
 
@@ -94,6 +110,14 @@ DSH 插件配置文件：**`~/.dsh/settings.yaml`**
 memos-cloud:
   apiKeyEnv: MEMOS_API_KEY
 ```
+
+推荐按上文将 API Key 和 User ID 放在 `.env` 中；`baseURL`、召回、写入等普通插件参数在 `settings.yaml` 中配置。
+
+**配置优先级**
+
+同一项支持多个配置来源时，优先级从高到低为：`settings.yaml` 中直接填写的值 → 启动进程的环境变量 → `~/.dsh/.credentials.yaml` 中的凭据 → 启动目录的 `.env` → `~/.dsh/.env` → 插件默认值。
+
+其中 `.credentials.yaml` 只用于 API Key。`apiKeyEnv` 填写凭据名称（默认 `MEMOS_API_KEY`），实际 Key 放在 `.env` 或 `.credentials.yaml` 中。
 
 **可选配置**
 
@@ -152,7 +176,7 @@ memos-cloud:
 
 ## 兼容性
 
-- DeepSeek Harness：`0.1.0-rc.6`
+- DeepSeek Harness：已验证 `0.1.2-rc.1` 和 `0.1.0-rc.6`
 - Node.js：`^22.19.0 || >=24.0.0`
 - MemOS Cloud API：`/api/openmem/v1`
 

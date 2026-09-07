@@ -13,6 +13,16 @@ export interface CaptureTurnOptions {
   maxMessageChars: number
 }
 
+export interface SessionEventReader {
+  snapshotEvents?: () => readonly SessionEvent[]
+  readonly events?: readonly SessionEvent[]
+}
+
+// Current DSH exposes immutable snapshots; rc.6 exposed the event array.
+export const readSessionEvents = (session: SessionEventReader): readonly SessionEvent[] => (
+  typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events ?? []
+)
+
 const NON_TEXT_TOOL_RESULT = '[non-text tool result omitted]'
 
 const textContent = (content: readonly ContentBlock[], maxChars: number): string | undefined => {
