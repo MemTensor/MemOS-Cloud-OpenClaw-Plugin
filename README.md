@@ -1,316 +1,133 @@
-# MemOS Cloud OpenClaw Plugin (Lifecycle)
+# MemOS Cloud Host Plugins
 
-Official plugin maintained by MemTensor.
+[English](README.md) | [中文](README_ZH.md)
 
-A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud before each run and **adds** new messages to MemOS Cloud after each run.
+This pnpm monorepo maintains two MemOS Cloud lifecycle plugins with independent package versions and host adapters:
 
-## Features
-- **Recall**: `before_prompt_build` (`before_agent_start` on older OpenClaw hosts) → `/search/memory`
-- **Add**: `agent_end` → `/add/message`
-- **Config UI**: starting the gateway also starts a local plugin config page for editing `plugins.entries.memos-cloud-openclaw-plugin.config`
-- Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
+| Host | npm package | Detailed guide |
+|---|---|---|
+| OpenClaw | `@memtensor/memos-cloud-openclaw-plugin` | [`packages/openclaw/README.md`](packages/openclaw/README.md) |
+| DeepSeek Harness (DSH) | `@memtensor/memos-cloud-dsh-plugin` | [`packages/dsh/README.md`](packages/dsh/README.md) |
 
-## Config UI
-- On gateway start, the plugin launches a local config page and prints the URL in the terminal (default: `http://127.0.0.1:38463`).
-- The page reads and writes the host config file directly:
-  - OpenClaw: `~/.openclaw/openclaw.json`
-  - Moltbot: `~/.moltbot/moltbot.json`
-  - ClawDBot: `~/.clawdbot/clawdbot.json`
-- If the preferred UI port is already in use, the plugin automatically picks the next free port.
-- Saving changes writes `plugins.entries.memos-cloud-openclaw-plugin.config`. (Note: you may need to manually restart the gateway after saving for settings to take effect).
+Choose the package for your host. Users never install the private `packages/core` workspace directly; each public package contains the shared MemOS runtime it needs.
 
-## Install
+## Common MemOS Cloud Behavior
 
-### Option A — NPM (Recommended)
-```bash
+Both plugins use the current OpenClaw-compatible MemOS protocol implemented by the shared core:
+
+- `Authorization: Token <MEMOS_API_KEY>` authentication;
+- recall through `/search/memory`;
+- message capture through `/add/message`;
+- factual, preference, and tool-memory projection, including optional correlated tool-call/result capture;
+- deterministic filters and knowledge-base scope;
+- optional `agent_id`, `app_id`, tags, info, and allowed write knowledge bases;
+- request validation, Unicode-safe truncation, timeouts, and bounded retries; and
+- fail-open host integration so a MemOS error does not stop the agent turn.
+
+The shared search settings include:
+
+| Setting | Purpose |
+|---|---|
+| `memoryLimitNumber` | Maximum factual memories returned |
+| `includePreference` / `preferenceLimitNumber` | Enable and limit preference recall |
+| `includeToolMemory` / `toolMemoryLimitNumber` | Enable tool-call/result capture and limit tool-memory recall |
+| `relativity` | Minimum semantic relevance |
+| `knowledgebaseIds` | Restrict searchable knowledge bases |
+| `recallGlobal` | Search without `conversation_id` |
+
+The two adapters intentionally differ in lifecycle hooks, session mapping, configuration storage, defaults, and host-only capabilities.
+
+## OpenClaw
+
+### Option A — Install from npm
+
+```powershell
 openclaw plugins install @memtensor/memos-cloud-openclaw-plugin@latest
 openclaw gateway restart
 ```
 
-> **Note for Windows Users**:
-> If you encounter `Error: spawn EINVAL`, this is a known issue with OpenClaw's plugin installer on Windows. Please use **Option B** (Manual Install) below.
+### Option B — Development install from this repository
 
-Make sure it’s enabled in `~/.openclaw/openclaw.json`:
-```json
-{
-  "plugins": {
-    "entries": {
-      "memos-cloud-openclaw-plugin": { "enabled": true }
-    }
-  }
-}
+Run both commands from the repository root. Preparation builds the shared core into the OpenClaw package but does not install or restart the plugin.
+
+```powershell
+pnpm prepare:openclaw
+openclaw plugins install .\packages\openclaw
+openclaw gateway restart
 ```
 
-### Option B — Manual Install (Workaround for Windows)
-1. Download the latest `.tgz` from [NPM](https://www.npmjs.com/package/@memtensor/memos-cloud-openclaw-plugin).
-2. Extract it to a local folder (e.g., `C:\Users\YourName\.openclaw\extensions\memos-cloud-openclaw-plugin`).
-3. Configure `~/.openclaw/openclaw.json` (or `%USERPROFILE%\.openclaw\openclaw.json`):
+This installs a copy under OpenClaw's extensions directory and does not require a `plugins.load` entry. After changing the source or `packages/core`, rerun preparation and reinstall the directory, then restart the gateway.
 
-```json
-{
-  "plugins": {
-    "entries": {
-      "memos-cloud-openclaw-plugin": { "enabled": true }
-    },
-    "load": {
-      "paths": [
-        "C:\\Users\\YourName\\.openclaw\\extensions\\memos-cloud-openclaw-plugin"
-      ]
-    }
-  }
-}
-```
-*Note: The extracted folder usually contains a `package` subfolder. Point to the folder containing `package.json`.*
+### Configure
 
-Restart the gateway after config changes.
+The plugin opens a local configuration page when the gateway starts. It writes `plugins.entries.memos-cloud-openclaw-plugin.config` in `~/.openclaw/openclaw.json`.
 
-## Environment Variables
-The plugin resolves runtime config in this order: **plugin config → env files**. Due to strict security sandboxing, it **does not** read credentials from process environment variables.
-For env files, it tries them in order (**openclaw → moltbot → clawdbot**). For each key, the first file with a value wins.
+Minimal file-based credentials can also be stored in `~/.openclaw/.env`:
 
-**Where to configure**
-- Files (priority order):
-  - `~/.openclaw/.env`
-  - `~/.moltbot/.env`
-  - `~/.clawdbot/.env`
-- Each line is `KEY=value`
-
-**Quick setup (shell / Windows)**
-```bash
-echo 'MEMOS_API_KEY="mpg-..."' >> ~/.openclaw/.env
-```
-
-If `MEMOS_API_KEY` is missing, the plugin will warn with setup instructions and the API key URL.
-
-**Minimal config**
 ```env
-MEMOS_API_KEY=YOUR_TOKEN
+MEMOS_API_KEY=mpg-your-key
+MEMOS_USER_ID=stable-user-id
 ```
 
-**Optional config**
-- `MEMOS_BASE_URL` (default: `https://memos.memtensor.cn/api/openmem/v1`)
-- `MEMOS_API_KEY` (required; Token auth) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
-- `MEMOS_USER_ID` (optional; default: `openclaw-user`)
-- `MEMOS_USE_DIRECT_SESSION_USER_ID` (default: `false`; when enabled, direct session keys like `agent:main:<provider>:direct:<peer-id>` use `<peer-id>` as MemOS `user_id`)
-- `MEMOS_CONVERSATION_ID` (optional override)
-- `MEMOS_KNOWLEDGEBASE_IDS` (optional; comma-separated global knowledge base IDs for `/search/memory`, e.g., `"kb-123, kb-456"`)
-- `MEMOS_ALLOW_KNOWLEDGEBASE_IDS` (optional; comma-separated knowledge base IDs for `/add/message`, e.g., `"kb-123"`)
-- `MEMOS_TAGS` (optional; comma-separated tags for `/add/message`, default: `"openclaw"`, e.g., `"openclaw, dev"`)
-- `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass conversation_id)
-- `MEMOS_MULTI_AGENT_MODE` (default: `false`; enable multi-agent data isolation)
-- `MEMOS_ALLOWED_AGENTS` (optional; comma-separated allowlist for multi-agent mode, e.g. `"agent1,agent2"`; empty means all agents enabled)
-- `MEMOS_CONVERSATION_PREFIX` / `MEMOS_CONVERSATION_SUFFIX` (optional)
-- `MEMOS_CONVERSATION_SUFFIX_MODE` (`none` | `counter`, default: `none`)
-- `MEMOS_CONVERSATION_RESET_ON_NEW` (default: `true`, requires hooks.internal.enabled)
-- `MEMOS_RECALL_FILTER_ENABLED` (default: `false`; run model-based memory filtering before injection)
-- `MEMOS_RECALL_FILTER_BASE_URL` (OpenAI-compatible base URL, e.g. `http://127.0.0.1:11434/v1`)
-- `MEMOS_RECALL_FILTER_API_KEY` (optional; required if your endpoint needs auth)
-- `MEMOS_RECALL_FILTER_MODEL` (model name used to filter recall candidates)
-- `MEMOS_RECALL_FILTER_TIMEOUT_MS` (default: `30000`)
-- `MEMOS_RECALL_FILTER_RETRIES` (default: `1`)
-- `MEMOS_RECALL_FILTER_CANDIDATE_LIMIT` (default: `30` per category)
-- `MEMOS_RECALL_FILTER_MAX_ITEM_CHARS` (default: `500`)
-- `MEMOS_RECALL_FILTER_FAIL_OPEN` (default: `true`; fallback to unfiltered recall on failure)
-- `MEMOS_CAPTURE_STRATEGY` (default: `last_turn`)
-- `MEMOS_ASYNC_MODE` (default: `true`; non-blocking memory addition)
-- `MEMOS_THROTTLE_MS` (default: `0`; throttle memory requests)
-- `MEMOS_INCLUDE_ASSISTANT` (default: `true`; include assistant messages in memory)
-- `MEMOS_MAX_MESSAGE_CHARS` (default: `20000`; max characters for message history)
+OpenClaw also supports dynamic multi-agent IDs, per-agent overrides, a direct-session user-ID option, and optional model-based second-pass recall filtering. See the [OpenClaw package guide](packages/openclaw/README.md) for the complete configuration reference.
 
-## Optional Plugin Config
-In `plugins.entries.memos-cloud-openclaw-plugin.config`:
-```json
-{
-  "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
-  "apiKey": "YOUR_API_KEY",
-  "userId": "memos_user_123",
-  "useDirectSessionUserId": false,
-  "conversationId": "openclaw-main",
-  "queryPrefix": "important user context preferences decisions ",
-  "recallEnabled": true,
-  "recallGlobal": true,
-  "addEnabled": true,
-  "captureStrategy": "last_turn",
-  "maxItemChars": 8000,
-  "includeAssistant": true,
-  "conversationIdPrefix": "",
-  "conversationIdSuffix": "",
-  "conversationSuffixMode": "none",
-  "resetOnNew": true,
-  "knowledgebaseIds": [],
-  "memoryLimitNumber": 6,
-  "preferenceLimitNumber": 6,
-  "includePreference": true,
-  "includeToolMemory": false,
-  "toolMemoryLimitNumber": 6,
-  "relativity": 0.45,
-  "tags": ["openclaw"],
-  "agentId": "",
-  "multiAgentMode": false,
-  "allowedAgents": [],
-  "asyncMode": true,
-  "recallFilterEnabled": false,
-  "recallFilterBaseUrl": "http://127.0.0.1:11434/v1",
-  "recallFilterApiKey": "",
-  "recallFilterModel": "qwen2.5:7b",
-  "recallFilterTimeoutMs": 30000,
-  "recallFilterRetries": 1,
-  "recallFilterCandidateLimit": 30,
-  "recallFilterMaxItemChars": 500,
-  "recallFilterFailOpen": true,
-  "throttleMs": 0,
-  "maxMessageChars": 20000
-}
+## DeepSeek Harness
+
+### Install from npm
+
+```powershell
+dsh plugin --profile web add @memtensor/memos-cloud-dsh-plugin@latest
 ```
 
-## How it Works
-- **Recall** (`before_prompt_build`; falls back to `before_agent_start` on older OpenClaw hosts)
-  - Builds a `/search/memory` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
-  - Default **global recall**: when `recallGlobal=true`, it does **not** pass `conversation_id`.
-  - Optional second-pass filtering: if `recallFilterEnabled=true`, candidates are sent to your configured model and only returned `keep` items are injected.
-  - Injects a stable MemOS recall protocol via `appendSystemContext`, while the retrieved `<memories>` block remains in `prependContext`.
+If DSH is not installed globally:
 
-- **Add** (`agent_end`)
-  - Builds a `/add/message` request with the **last turn** by default (user + assistant).
-  - Sends `messages` with `user_id`, `conversation_id`, and optional `tags/info/agent_id/app_id`.
-
-## Multi-Agent Support
-The plugin provides native support for multi-agent architectures (via the `agent_id` parameter):
-- **Enable Mode**: Set `"multiAgentMode": true` in config or `MEMOS_MULTI_AGENT_MODE=true` in env variables (default is `false`).
-- **Dynamic Context**: When enabled, it automatically captures `ctx.agentId` during OpenClaw lifecycle hooks. (Note: the default OpenClaw agent `"main"` is ignored to preserve backwards compatibility for single-agent users).
-- **Data Isolation**: The `agent_id` is automatically injected into both `/search/memory` and `/add/message` requests. This ensures completely isolated memory and message histories for different agents, even under the same user or session.
-- **Static Override**: You can also force a specific agent ID by setting `"agentId": "your_agent_id"` in the plugin's `config`.
-
-### Per-Agent Memory Toggle
-
-In multi-agent mode, you can use `MEMOS_ALLOWED_AGENTS` to control exactly which agents have memory enabled. Agents not in the allowlist will skip both memory recall and memory capture entirely.
-
-**Environment variable** (in `~/.openclaw/.env`):
-```env
-MEMOS_MULTI_AGENT_MODE=true
-MEMOS_ALLOWED_AGENTS="agent1,agent2"
+```powershell
+npx @deepseek-ai/dsh plugin --profile web add @memtensor/memos-cloud-dsh-plugin@latest
 ```
 
-Separate multiple agent IDs with commas.
+Restart DSH Web after installing:
 
-**Plugin config** (in `openclaw.json`):
-```json
-{
-  "plugins": {
-    "entries": {
-      "memos-cloud-openclaw-plugin": {
-        "enabled": true,
-        "config": {
-          "multiAgentMode": true,
-          "allowedAgents": ["agent1", "agent2"]
-        }
-      }
-    }
-  }
-}
+```powershell
+npx @deepseek-ai/dsh web
 ```
 
-**Behavior**:
-| Config | Effect |
-|--------|--------|
-| `MEMOS_ALLOWED_AGENTS` unset or empty | All agents have memory enabled |
-| `MEMOS_ALLOWED_AGENTS="agent1,agent2"` | Only `agent1` and `agent2` are enabled; others are skipped |
-| `MEMOS_ALLOWED_AGENTS="agent1"` | Only `agent1` is enabled; all other agents are skipped |
-| `MEMOS_MULTI_AGENT_MODE=false` | Allowlist has no effect; all requests use single-agent mode |
+### Install from this repository
 
-> **Note**: The allowlist only takes effect when `multiAgentMode=true`. When multi-agent mode is off, memory works for all agents and the allowlist is ignored.
+Run these commands from the repository root. Install the workspace dependencies, then create the versioned `.tgz`; packaging does not add the plugin to DSH.
 
-### Per-Agent Configuration (agentOverrides)
-
-Beyond simple on/off toggles, you can configure **different memory parameters for each agent** using `agentOverrides`. Each agent can have its own knowledge base, recall limits, relativity threshold, and more.
-
-**Plugin config** (in `openclaw.json`):
-```json
-{
-  "plugins": {
-    "entries": {
-      "memos-cloud-openclaw-plugin": {
-        "enabled": true,
-        "config": {
-          "multiAgentMode": true,
-          "allowedAgents": ["default", "research-agent", "coding-agent"],
-          "knowledgebaseIds": [],
-          "memoryLimitNumber": 6,
-          "relativity": 0.45,
-
-          "agentOverrides": {
-            "research-agent": {
-              "knowledgebaseIds": ["kb-research-papers", "kb-academic"],
-              "memoryLimitNumber": 12,
-              "relativity": 0.3,
-              "includeToolMemory": true,
-              "captureStrategy": "full_session",
-              "queryPrefix": "research context: "
-            },
-            "coding-agent": {
-              "knowledgebaseIds": ["kb-codebase", "kb-api-docs"],
-              "memoryLimitNumber": 9,
-              "relativity": 0.5,
-              "addEnabled": false
-            }
-          }
-        }
-      }
-    }
-  }
-}
+```powershell
+pnpm install --frozen-lockfile
+pnpm pack:dsh
+dsh plugin --profile web add ".\packages\dsh\artifacts\memtensor-memos-cloud-dsh-plugin-$(node -p "require('./packages/dsh/package.json').version").tgz"
 ```
 
-**Environment variable** (in `~/.openclaw/.env`):
-You can use `MEMOS_AGENT_OVERRIDES` to configure a JSON string to override global parameters. Note: `.env` configuration has a lower priority than `agentOverrides` in `openclaw.json`.
-```env
-MEMOS_AGENT_OVERRIDES='{"research-agent": {"memoryLimitNumber": 12, "relativity": 0.3}, "coding-agent": {"memoryLimitNumber": 9}}'
+If DSH is not installed globally:
+
+```powershell
+npx @deepseek-ai/dsh plugin --profile web add ".\packages\dsh\artifacts\memtensor-memos-cloud-dsh-plugin-$(node -p "require('./packages/dsh/package.json').version").tgz"
 ```
 
-**How it works**:
-- Fields in `agentOverrides.<agentId>` override the global defaults for that specific agent.
-- Only the fields you specify are overridden; all other parameters inherit from the global config.
-- If no override exists for an agent, it uses the global config as-is.
+The install command derives the tarball filename from `packages/dsh/package.json`, so it remains valid after a version change.
 
-**Overridable fields**:
+### Configure
 
-| Field | Description |
-|-------|-------------|
-| `knowledgebaseIds` | Knowledge base IDs for `/search/memory` |
-| `memoryLimitNumber` | Max memory items to recall |
-| `preferenceLimitNumber` | Max preference items to recall |
-| `includePreference` | Enable preference recall |
-| `includeToolMemory` | Enable tool memory recall |
-| `toolMemoryLimitNumber` | Max tool memory items |
-| `relativity` | Relevance threshold (0-1) |
-| `recallEnabled` | Enable/disable recall for this agent |
-| `addEnabled` | Enable/disable memory capture for this agent |
-| `captureStrategy` | `last_turn` or `full_session` |
-| `queryPrefix` | Prefix for search queries |
-| `maxItemChars` | Max chars per memory item in prompt |
-| `maxMessageChars` | Max chars per message when adding |
-| `includeAssistant` | Include assistant messages in capture |
-| `recallGlobal` | Global recall (skip conversation_id) |
-| `recallFilterEnabled` | Enable model-based recall filtering |
-| `recallFilterModel` | Model for recall filtering |
-| `recallFilterBaseUrl` | Base URL for recall filter model |
-| `recallFilterApiKey` | API key for recall filter |
-| `allowKnowledgebaseIds` | Knowledge bases for `/add/message` |
-| `tags` | Tags for `/add/message` |
-| `throttleMs` | Throttle interval |
+Store the API key in `~/.dsh/.credentials.yaml`:
 
-## Direct Session User ID
-- **Default behavior**: the plugin still uses the configured `userId` (or `MEMOS_USER_ID`) and stays fully backward compatible.
-- **Enable mode**: set `"useDirectSessionUserId": true` in plugin config or `MEMOS_USE_DIRECT_SESSION_USER_ID=true` in env.
-- **What it does**: when enabled, session keys like `agent:main:<provider>:direct:<peer-id>` reuse `<peer-id>` as MemOS `user_id`.
-- **What it does not do**: non-direct session keys such as `agent:main:<provider>:channel:<channel-id>` keep using the configured fallback `userId`.
-- **Request paths affected**: the same resolver is used by both `buildSearchPayload()` and `buildAddMessagePayload()`, so recall and add stay consistent.
-- **Config precedence**: runtime config still follows the same rule as the rest of the plugin - plugin config first, then `.env` files (`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`).
+```yaml
+MEMOS_API_KEY: mpg-your-key
+```
 
+Configure the plugin in `~/.dsh/settings.yaml`:
 
-## Notes
-- `conversation_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
-- Optional **prefix/suffix** via env or config; `conversationSuffixMode=counter` increments on `/new` (requires `hooks.internal.enabled`).
+```yaml
+memos-cloud:
+  apiKeyEnv: MEMOS_API_KEY
+  userId: stable-user-id
+  memoryLimitNumber: 6
+  includePreference: true
+  includeToolMemory: false
+  multiAgentMode: false
+  relativity: 0.45
+```
 
-## Acknowledgements
-- Thanks to @anatolykoptev (Contributor) — LinkedIn: https://www.linkedin.com/in/koptev?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app
+DSH uses Cordis credential and settings services, captures the completed direct user turn, optionally maps stable Agent presets to `agent_id`, and serializes writes through its adapter queue. See the [DSH package guide](packages/dsh/README.md) for the complete configuration reference.

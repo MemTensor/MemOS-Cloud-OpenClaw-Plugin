@@ -1,0 +1,187 @@
+name: DSH Cloud Plugin — Publish & Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/core/**"
+      - "packages/dsh/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/release-dsh.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Committed DSH package version"
+        required: true
+      dry_run:
+        description: "Build and pack without publishing"
+        required: true
+        type: boolean
+        default: true
+      publish_confirmation:
+        description: "Required for a real manual publish: PUBLISH dsh-v<version>"
+        required: false
+        default: ""
+
+concurrency:
+  group: memos-cloud-dsh-plugin-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Resolve independent DSH release
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          REQUESTED_VERSION: ${{ inputs.version || '' }}
+          REQUESTED_DRY_RUN: ${{ inputs.dry_run || false }}
+          PUBLISH_CONFIRMATION: ${{ inputs.publish_confirmation || '' }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/dsh/package.json').version")"
+          node -e 'const value=process.argv[1]; if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value)) process.exit(1)' "${version}" || {
+            echo "::error::DSH package version must be strict SemVer without build metadata."
+            exit 1
+          }
+
+          eligible=true
+          dry_run=false
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            dry_run="${REQUESTED_DRY_RUN}"
+            if [ "${REQUESTED_VERSION}" != "${version}" ]; then
+              echo "::error::Requested version ${REQUESTED_VERSION} does not match committed packages/dsh/package.json version ${version}."
+              exit 1
+            fi
+            if [ "${dry_run}" != "true" ] && [ "${PUBLISH_CONFIRMATION}" != "PUBLISH dsh-v${version}" ]; then
+              echo "::error::Real publish confirmation must exactly equal PUBLISH dsh-v${version}."
+              exit 1
+            fi
+          else
+            previous=""
+            if [[ "${BEFORE_SHA}" =~ ^[0-9a-fA-F]{40}$ ]] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
+              previous="$(git show "${BEFORE_SHA}:packages/dsh/package.json" 2>/dev/null | node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value).version || ""));' || true)"
+            fi
+            if [ -z "${previous}" ]; then
+              eligible=false
+              echo "DSH package did not exist at the previous commit; use the manual workflow for the first publish."
+            elif [ "${previous}" = "${version}" ]; then
+              eligible=false
+              echo "DSH version is unchanged at ${version}; publish is skipped."
+            fi
+          fi
+
+          npm_dist_tag=latest
+          if [[ "${version}" == *-* ]]; then
+            npm_dist_tag="${version#*-}"
+            npm_dist_tag="${npm_dist_tag%%.*}"
+            case "${npm_dist_tag}" in alpha|beta|next) ;; *) npm_dist_tag=next ;; esac
+          fi
+          {
+            echo "eligible=${eligible}"
+            echo "version=${version}"
+            echo "tag=dsh-v${version}"
+            echo "npm_dist_tag=${npm_dist_tag}"
+            echo "dry_run=${dry_run}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install pnpm workspace
+        if: ${{ steps.release.outputs.eligible == 'true' }}
+        shell: bash
+        run: |
+          corepack enable
+          bash .github/scripts/retry.sh --label "pnpm install" -- pnpm install --frozen-lockfile
+
+      - name: Test and build DSH package
+        if: ${{ steps.release.outputs.eligible == 'true' }}
+        shell: bash
+        run: |
+          pnpm --filter @memtensor/memos-cloud-plugin-core test
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin test
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin build
+
+      - name: Verify DSH package artifact
+        if: ${{ steps.release.outputs.eligible == 'true' }}
+        shell: bash
+        run: |
+          pnpm --dir packages/dsh pack --dry-run --json > "${RUNNER_TEMP}/dsh-pack.json"
+          PACK_JSON="${RUNNER_TEMP}/dsh-pack.json" node - <<'NODE'
+          const fs = require('node:fs')
+          const report = JSON.parse(fs.readFileSync(process.env.PACK_JSON, 'utf8'))
+          const entry = Array.isArray(report) ? report[0] : report
+          const names = new Set((entry.files || []).map((file) => file.path))
+          for (const required of ['package.json', 'lib/index.js', 'lib/index.d.ts', 'cordis.patch.yml']) {
+            if (!names.has(required)) throw new Error(`DSH package is missing ${required}`)
+          }
+          const manifest = require('./packages/dsh/package.json')
+          if (manifest.dependencies?.['@memtensor/memos-cloud-plugin-core']) {
+            throw new Error('DSH package must not publish the private core as a runtime dependency')
+          }
+          NODE
+
+      - name: Publish DSH package
+        if: ${{ steps.release.outputs.eligible == 'true' && steps.release.outputs.dry_run != 'true' }}
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: "@memtensor/memos-cloud-dsh-plugin"
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          NPM_DIST_TAG: ${{ steps.release.outputs.npm_dist_tag }}
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+            npm_git_head="$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" gitHead | tr -d '[:space:]\"')"
+            if [ "${npm_git_head}" != "${GITHUB_SHA}" ]; then
+              echo "::error::${PACKAGE_NAME}@${RELEASE_VERSION} belongs to npm gitHead ${npm_git_head:-missing}, not ${GITHUB_SHA}."
+              exit 1
+            fi
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} already matches ${GITHUB_SHA}; skipping duplicate publish and resuming metadata creation."
+          else
+            pnpm --dir packages/dsh publish --access public --tag "${NPM_DIST_TAG}"
+          fi
+
+      - name: Create DSH draft release
+        if: ${{ steps.release.outputs.eligible == 'true' && steps.release.outputs.dry_run != 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            tag_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+            if [ "${tag_commit}" != "${GITHUB_SHA}" ]; then
+              echo "::error::Git tag ${RELEASE_TAG} points to ${tag_commit}, not ${GITHUB_SHA}."
+              exit 1
+            fi
+          fi
+          if gh release view "${RELEASE_TAG}" --json tagName >/dev/null 2>&1; then
+            echo "GitHub Release ${RELEASE_TAG} already exists and its tag points to ${GITHUB_SHA}; no duplicate is created."
+            exit 0
+          fi
+          gh release create "${RELEASE_TAG}" \
+            --target "${GITHUB_SHA}" \
+            --title "DSH plugin ${RELEASE_VERSION}" \
+            --generate-notes \
+            --draft

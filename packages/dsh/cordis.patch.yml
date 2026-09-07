@@ -1,0 +1,3 @@
+- insert:
+    - id: memos-cloud
+      name: '@memtensor/memos-cloud-dsh-plugin'

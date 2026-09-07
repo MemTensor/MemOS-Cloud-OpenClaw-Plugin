@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { setTimeout as delay } from "node:timers/promises";
 import { CONFIG_RESOLUTION_FIELDS } from "./config-resolution-schema.js";
+import { MemosClient } from "./memos-core/index.js";
 
 const DEFAULT_BASE_URL = "https://memos.memtensor.cn/api/openmem/v1";
 export const USER_QUERY_MARKER = "user\u200b原\u200b始\u200bquery\u200b：\u200b\u200b\u200b\u200b";
@@ -391,42 +391,16 @@ export async function callApi({ baseUrl, apiKey, timeoutMs = 5000, retries = 1 }
   if (!apiKey) {
     throw new Error("Missing MEMOS API key (Token auth)");
   }
-
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Token ${apiKey}`,
-  };
-
-  let lastError;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    let timeoutId;
-    try {
-      const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-      const res = await fetch(`${baseUrl}${path}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-
-      return await res.json();
-    } catch (err) {
-      lastError = err;
-      if (attempt < retries) {
-        await delay(100 * (attempt + 1));
-      }
-    } finally {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    }
-  }
-
-  throw lastError;
+  const client = new MemosClient({
+    baseURL: baseUrl,
+    timeoutMs,
+    searchRetries: retries,
+    addRetries: retries,
+    resolveApiKey: async () => apiKey,
+    redirect: "follow",
+    retryAllFailures: true,
+  });
+  return client.requestRaw(path, body, retries);
 }
 
 export function sanitizeSearchPayload(payload) {

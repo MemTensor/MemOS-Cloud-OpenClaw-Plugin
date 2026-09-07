@@ -1,0 +1,8 @@
+packages:
+  - packages/*
+
+sharedWorkspaceLockfile: true
+linkWorkspacePackages: false
+saveWorkspaceProtocol: rolling
+disallowWorkspaceCycles: true
+failIfNoMatch: true

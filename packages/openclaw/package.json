@@ -1,0 +1,61 @@
+{
+  "name": "@memtensor/memos-cloud-openclaw-plugin",
+  "version": "0.1.21-beta.0",
+  "description": "OpenClaw lifecycle plugin for MemOS Cloud (add + recall memory)",
+  "files": [
+    "index.js",
+    "lib",
+    "openclaw.plugin.json",
+    "moltbot.plugin.json",
+    "clawdbot.plugin.json",
+    "telemetry.credentials.json",
+    "README_ZH.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm --filter @memtensor/memos-cloud-plugin-core build && node scripts/sync-core.mjs",
+    "test": "pnpm build && node --test test/*.test.mjs",
+    "generate-telemetry-credentials": "node scripts/generate-telemetry-credentials.cjs",
+    "sync-version": "node scripts/sync-version.js",
+    "pack:local": "node ../../scripts/pack-package.mjs openclaw",
+    "prepack": "pnpm build",
+    "version": "pnpm sync-version && git add openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json"
+  },
+  "keywords": [
+    "memos",
+    "memos-cloud",
+    "openclaw",
+    "plugin",
+    "memory"
+  ],
+  "homepage": "https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin/tree/main/packages/openclaw#readme",
+  "bugs": {
+    "url": "https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin.git",
+    "directory": "packages/openclaw"
+  },
+  "type": "module",
+  "author": "MemTensor",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "clawdbot": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "moltbot": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

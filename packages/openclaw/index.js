@@ -23,6 +23,7 @@ import {
   isGatewayRuntimeStartup,
   waitForGatewayReady,
 } from "./lib/config-ui-server.js";
+import { buildMemosAddRequest, buildMemosSearchRequest } from "./lib/memos-core/index.js";
 let lastCaptureTime = 0;
 // ponytail: in-process cache; replace with server idempotency for cross-restart or multi-instance guarantees.
 const recentCaptureKeys = new Set();
@@ -170,16 +171,20 @@ export function buildSearchPayload(cfg, prompt, ctx) {
     payload.filter = { user: userFilter };
   }
 
-  if (cfg.knowledgebaseIds?.length) payload.knowledgebase_ids = cfg.knowledgebaseIds;
-
-  payload.memory_limit_number = cfg.memoryLimitNumber;
-  payload.include_preference = cfg.includePreference;
-  payload.preference_limit_number = cfg.preferenceLimitNumber;
-  payload.include_tool_memory = cfg.includeToolMemory;
-  payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
-  payload.relativity = cfg.relativity;
-
-  return payload;
+  return buildMemosSearchRequest({
+    userId: payload.user_id,
+    query: payload.query,
+    ...(payload.conversation_id === undefined ? {} : { conversationId: payload.conversation_id }),
+    source: payload.source,
+    memoryLimitNumber: cfg.memoryLimitNumber,
+    includePreference: cfg.includePreference,
+    preferenceLimitNumber: cfg.preferenceLimitNumber,
+    includeToolMemory: cfg.includeToolMemory,
+    toolMemoryLimitNumber: cfg.toolMemoryLimitNumber,
+    relativity: cfg.relativity,
+    ...(payload.filter === undefined ? {} : { filter: payload.filter }),
+    ...(cfg.knowledgebaseIds?.length ? { knowledgebaseIds: cfg.knowledgebaseIds } : {}),
+  });
 }
 
 export function buildAddMessagePayload(cfg, messages, ctx) {
@@ -203,11 +208,19 @@ export function buildAddMessagePayload(cfg, messages, ctx) {
   };
   if (Object.keys(info).length > 0) payload.info = info;
 
-  payload.allow_public = cfg.allowPublic;
-  if (cfg.allowKnowledgebaseIds?.length) payload.allow_knowledgebase_ids = cfg.allowKnowledgebaseIds;
-  payload.async_mode = cfg.asyncMode;
-
-  return payload;
+  return buildMemosAddRequest({
+    userId: payload.user_id,
+    conversationId: payload.conversation_id,
+    messages: payload.messages,
+    source: payload.source,
+    asyncMode: cfg.asyncMode,
+    allowPublic: cfg.allowPublic,
+    ...(payload.tags === undefined ? {} : { tags: payload.tags }),
+    ...(payload.info === undefined ? {} : { info: payload.info }),
+    ...(payload.agent_id === undefined ? {} : { agentId: payload.agent_id }),
+    ...(payload.app_id === undefined ? {} : { appId: payload.app_id }),
+    ...(cfg.allowKnowledgebaseIds?.length ? { allowKnowledgebaseIds: cfg.allowKnowledgebaseIds } : {}),
+  });
 }
 
 function convertAssistantMessage(msg, cfg) {
