@@ -1,7 +1,7 @@
 {
   "name": "@memtensor/memos-cloud-dsh-plugin",
   "description": "MemOS Cloud lifecycle memory plugin for DeepSeek Harness",
-  "version": "0.1.1-beta.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
