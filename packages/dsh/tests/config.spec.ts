@@ -59,6 +59,9 @@ describe('normalizeConfig', () => {
       maxItemChars: 2000,
       maxMessageChars: 12000,
       timeoutMs: 5000,
+      searchTimeoutMs: 5000,
+      syncAddTimeoutMs: 5000,
+      addTimeoutMs: 5000,
       searchRetries: 1,
       addRetries: 0,
       allowPublic: false,
@@ -106,7 +109,12 @@ describe('normalizeConfig', () => {
     ['maxItemChars', 0],
     ['maxMessageChars', 1.5],
     ['timeoutMs', 99],
-    ['timeoutMs', 60_001],
+    ['timeoutMs', 180_001],
+    ['searchTimeoutMs', 99],
+    ['searchTimeoutMs', 5001],
+    ['syncAddTimeoutMs', 99],
+    ['syncAddTimeoutMs', 180_001],
+    ['syncAddTimeoutMs', 5000.5],
     ['searchRetries', -1],
     ['searchRetries', 4],
     ['addRetries', -1],
@@ -152,6 +160,32 @@ describe('normalizeConfig', () => {
     expect(resolved.tags).toEqual(['alpha'])
     expect(resolved.filter).toEqual({ and: [{ tags: { contains: 'private' } }] })
     expect(resolved.info).toEqual({ team: 'memory' })
+  })
+
+  it.each([false, true])('isolates a long legacy timeout with asyncMode=%s, before and after schema parsing', (asyncMode) => {
+    const raw = { timeoutMs: 180000, asyncMode }
+    for (const input of [raw, ConfigSchema(raw)]) {
+      expect(normalizeConfig(input)).toMatchObject({
+        timeoutMs: 180000, searchTimeoutMs: 5000, syncAddTimeoutMs: 180000,
+        addTimeoutMs: asyncMode ? 5000 : 180000,
+      })
+    }
+  })
+
+  it.each([false, true])('preserves a shorter legacy timeout with asyncMode=%s', (asyncMode) => {
+    const raw = { timeoutMs: 1200, asyncMode }
+    expect(normalizeConfig(ConfigSchema(raw))).toMatchObject({
+      searchTimeoutMs: 1200, syncAddTimeoutMs: 1200, addTimeoutMs: 1200,
+    })
+  })
+
+  it('prioritizes independent settings and applies a long write timeout only in synchronous mode', () => {
+    const raw = { timeoutMs: 2000, searchTimeoutMs: 4000, syncAddTimeoutMs: 180000, asyncMode: false }
+    for (const input of [raw, ConfigSchema(raw)]) {
+      expect(normalizeConfig(input)).toMatchObject({ searchTimeoutMs: 4000, addTimeoutMs: 180000 })
+      expect(normalizeConfig({ ...input, asyncMode: true })).toMatchObject({ searchTimeoutMs: 4000, addTimeoutMs: 2000 })
+    }
+    expect(normalizeConfig(ConfigSchema({ syncAddTimeoutMs: 180000 }))).toMatchObject({ searchTimeoutMs: 5000, addTimeoutMs: 5000 })
   })
 
   it('prefixes invalid filter configuration errors with the plugin name', () => {

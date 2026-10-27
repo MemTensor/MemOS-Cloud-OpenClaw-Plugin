@@ -102,7 +102,16 @@ Configure the user ID using either `MEMOS_USER_ID` in `.env` or `memos-cloud.use
 
 ### 2. Plugin Settings
 
-DSH plugin settings file: **`~/.dsh/settings.yaml`**
+DSH `0.1.7-rc.2` / `0.2.1-rc.2`: edit `memos-cloud` in Settings. Values persist in the active profile's `cordis.patch.yml`, for example:
+
+```yaml
+- id: memos-cloud
+  config:
+    apiKeyEnv: MEMOS_API_KEY
+    userId: your-stable-user-id
+```
+
+Earlier hosts (including `0.1.0-rc.6` and `0.1.2-rc.1`) still use **`~/.dsh/settings.yaml`**:
 
 **Minimal config**
 
@@ -111,11 +120,13 @@ memos-cloud:
   apiKeyEnv: MEMOS_API_KEY
 ```
 
-Keep the API key and user ID in `.env` as shown above; configure ordinary plugin options such as `baseURL`, recall, and add in `settings.yaml`.
+Keep credentials in `.env` as above; edit ordinary options in Settings or the configuration file for your host version.
+
+On upgrade, the plugin migrates its section of `settings.yaml` and recovers failed imports from `settings.yaml.imported`. Explicit values in the current profile take precedence. A private `memos-cloud.legacy.json` backup (mode `0600`) is saved in that profile before migration; `memos-cloud.migration.json` records completion so restarting does not resurrect old values after a Settings reset. Other plugins' sections and comments are preserved. A failed migration blocks memory requests until the configuration is fixed and the host restarted. Protect the backup as a credentials file; it may contain a legacy API key.
 
 **Configuration precedence**
 
-For an option with multiple supported sources, precedence is, highest first: values entered directly in `settings.yaml` → inherited process environment → credentials in `~/.dsh/.credentials.yaml` → launch-directory `.env` → `~/.dsh/.env` → plugin defaults.
+For an option with multiple supported sources, precedence is, highest first: explicit Settings / profile values (`settings.yaml` on earlier hosts) → inherited process environment → credentials in `~/.dsh/.credentials.yaml` → launch-directory `.env` → `~/.dsh/.env` → plugin defaults.
 
 The credentials file applies only to the API key. Set `apiKeyEnv` to the credential name (default: `MEMOS_API_KEY`), and store the actual key in `.env` or `.credentials.yaml`.
 
@@ -148,11 +159,23 @@ The credentials file applies only to the API key. Set `apiKeyEnv` to the credent
 - `maxRecallChars` (default: `12000`; total recalled-text budget)
 - `maxItemChars` (default: `2000`; per-item recalled-text budget)
 - `maxMessageChars` (default: `12000`; per-message add budget)
-- `timeoutMs` (default: `5000`; HTTP timeout, `100..60000` ms)
+- `searchTimeoutMs` (optional, default: `5000`; total recall budget including retries and credential lookup, `100..5000` ms)
+- `syncAddTimeoutMs` (optional, default: `5000`; per-attempt write HTTP timeout only with `asyncMode: false`, `100..180000` ms)
+- `timeoutMs` (legacy fallback, default: `5000`, `100..180000` ms; omitted new fields inherit this value. Recall and async writes cap it at `5000`; sync writes retain it. Explicit new fields take precedence)
 - `searchRetries` (default: `1`; extra search attempts, `0..3`)
 - `addRetries` (default: `0`; extra add attempts, `0..3`)
 - `allowPublic` (default: `false`; allow generated memories to enter the public project store)
 - `asyncMode` (default: `true`; ask MemOS to process added messages asynchronously)
+
+To wait for synchronous cloud processing, use:
+
+```yaml
+searchTimeoutMs: 5000
+asyncMode: false
+syncAddTimeoutMs: 180000
+```
+
+Switching back to `asyncMode: true` ignores the retained `syncAddTimeoutMs`; async write attempts still take at most five seconds. Recall failure or budget expiry lets the model turn continue, with all `searchRetries` sharing the recall budget. A slow synchronous write does not extend recall, but its session waits for confirmation before normal exit. Existing short `timeoutMs` values keep their shorter limits, and legacy configurations require no field renaming.
 
 ## How It Works
 
@@ -190,3 +213,13 @@ Harness is a developer preview. Re-run the full tests and a live smoke after upg
 - Original DSH message IDs and event timestamps are preserved.
 - Public writes remain disabled unless `allowPublic` is explicitly enabled.
 - Warnings omit API keys, authorization headers, and request bodies.
+
+## Compatibility and shutdown
+
+DSH peers use `^0.1.0-rc.6 || ^0.1.2-rc.1 || ^0.2.1-rc.2`. Verification covers `0.1.0-rc.6`, `0.1.2-rc.1`, `0.1.7-rc.2`, and `0.2.1-rc.2`; later releases admitted by the range still need regression testing.
+
+Writes enqueue at `turn/end`. The awaited `session/flush` checkpoint drains the current session before headless requests exit. Its bounded budget is at least 15 seconds and accounts for each queued request's effective write timeout, retries, and per-session ordering; unrelated sessions remain parallel. Settings edits to modes or timeouts affect newly enqueued requests. Disposal stops new work, cancels recall, and drains writes with an explicit warning on timeout. Signal shutdown remains subject to DSH's own five-second teardown limit, and forced termination cannot guarantee delivery. With `asyncMode: true`, a successful response confirms server acceptance; search visibility depends on cloud processing.
+
+Run behavior tests with `pnpm --filter @memtensor/memos-cloud-dsh-plugin test`. Set `DSH_TEST_RUNTIME` to an isolated host installation to run that suite and `test:types` against another SDK. Also set `DSH_TEST_PACKAGE` to an absolute tarball path and run `test:host` for real CLI installation, Settings, migration, recall, tool capture, and shutdown checks using local HTTP fixtures.
+
+For opt-in real integration testing, run `node packages/dsh/scripts/live-regression.mjs /absolute/config.json all`. The non-secret config supplies `root`, `runtimes.old` / `runtimes.target`, a `plugin` tarball, `modelURL` / `model` / `modelKeyEnv`, `memoryURL`, and credential `envFiles` paths. The script creates isolated profiles and users, calls the actual model and MemOS endpoints, and saves redacted request/response timing and upgrade evidence.

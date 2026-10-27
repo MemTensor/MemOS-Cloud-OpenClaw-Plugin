@@ -74,9 +74,15 @@ const toolResultContent = (
  * event carries so one build serves both runtimes.
  */
 interface ToolResultView {
-  readonly content: readonly ContentBlock[]
+  readonly content: readonly (ContentBlock | LegacyToolResult)[]
   readonly toolCallId?: string
   readonly source: { readonly callId?: string }
+}
+
+interface LegacyToolResult {
+  readonly type: 'tool-result'
+  readonly toolCallId: string
+  readonly content: readonly ContentBlock[]
 }
 
 const readToolResult = (
@@ -85,7 +91,10 @@ const readToolResult = (
   const view = message as unknown as ToolResultView
   const wrapped = view.content.find((value) => value.type === 'tool-result')
   if (wrapped !== undefined) return { callId: wrapped.toolCallId, content: wrapped.content }
-  return { callId: view.toolCallId ?? view.source.callId, content: view.content }
+  return {
+    callId: view.toolCallId ?? view.source.callId,
+    content: view.content.filter((value): value is ContentBlock => value.type !== 'tool-result'),
+  }
 }
 
 const startIndexFor = (

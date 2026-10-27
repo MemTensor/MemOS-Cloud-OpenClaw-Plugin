@@ -102,7 +102,16 @@ User ID 可以通过 `.env` 中的 `MEMOS_USER_ID` 配置，也可以通过下�
 
 ### 2. 插件参数
 
-DSH 插件配置文件：**`~/.dsh/settings.yaml`**
+DSH `0.1.7-rc.2` / `0.2.1-rc.2`：在 Settings 中编辑 `memos-cloud`，配置保存在当前 profile 的 `cordis.patch.yml` 中。例如：
+
+```yaml
+- id: memos-cloud
+  config:
+    apiKeyEnv: MEMOS_API_KEY
+    userId: your-stable-user-id
+```
+
+早期 DSH（如 `0.1.0-rc.6`、`0.1.2-rc.1`）仍使用 **`~/.dsh/settings.yaml`**：
 
 **最小配置**
 
@@ -111,11 +120,13 @@ memos-cloud:
   apiKeyEnv: MEMOS_API_KEY
 ```
 
-推荐按上文将 API Key 和 User ID 放在 `.env` 中；`baseURL`、召回、写入等普通插件参数在 `settings.yaml` 中配置。
+推荐按上文将 API Key 和 User ID 放在 `.env` 中；普通参数在 Settings 或对应版本的配置文件中编辑。
+
+升级时会自动迁移 `settings.yaml` 的 `memos-cloud` 段，也会恢复之前未成功导入的 `settings.yaml.imported`。当前 profile 的显式配置优先。迁移前在该 profile 中保存权限为 `0600` 的 `memos-cloud.legacy.json`，成功后记录 `memos-cloud.migration.json`，防止重启后恢复已被用户删除的旧值。其他插件的配置与注释保留；迁移失败时暂停召回和回写，修正配置后重启重试。备份可能包含旧 API Key，应按凭据文件保管。
 
 **配置优先级**
 
-同一项支持多个配置来源时，优先级从高到低为：`settings.yaml` 中直接填写的值 → 启动进程的环境变量 → `~/.dsh/.credentials.yaml` 中的凭据 → 启动目录的 `.env` → `~/.dsh/.env` → 插件默认值。
+同一项支持多个配置来源时，优先级从高到低为：Settings / profile（早期版本为 `settings.yaml`）中直接填写的值 → 启动进程的环境变量 → `~/.dsh/.credentials.yaml` 中的凭据 → 启动目录的 `.env` → `~/.dsh/.env` → 插件默认值。
 
 其中 `.credentials.yaml` 只用于 API Key。`apiKeyEnv` 填写凭据名称（默认 `MEMOS_API_KEY`），实际 Key 放在 `.env` 或 `.credentials.yaml` 中。
 
@@ -148,11 +159,23 @@ memos-cloud:
 - `maxRecallChars`（默认：`12000`；召回文本总字符预算）
 - `maxItemChars`（默认：`2000`；单条召回记忆字符预算）
 - `maxMessageChars`（默认：`12000`；单条写回消息字符预算）
-- `timeoutMs`（默认：`5000`；HTTP 超时，`100..60000` ms）
+- `searchTimeoutMs`（可选，默认 `5000`；召回总预算，含重试和凭据读取，`100..5000` ms）
+- `syncAddTimeoutMs`（可选，默认 `5000`；仅 `asyncMode: false` 时的单次回写 HTTP 超时，`100..180000` ms）
+- `timeoutMs`（兼容旧配置，默认 `5000`，`100..180000` ms；未指定新字段时作为回退值。召回与异步回写取此值和 `5000` 的较小值，同步回写保留原值；新字段优先）
 - `searchRetries`（默认：`1`；search 额外重试次数，`0..3`）
 - `addRetries`（默认：`0`；add 额外重试次数，`0..3`）
 - `allowPublic`（默认：`false`；是否允许生成的记忆进入项目公共记忆库）
 - `asyncMode`（默认：`true`；是否让 MemOS 异步处理写入消息）
+
+需要等待云端同步处理时，可配置：
+
+```yaml
+searchTimeoutMs: 5000
+asyncMode: false
+syncAddTimeoutMs: 180000
+```
+
+切回 `asyncMode: true` 后，保留的 `syncAddTimeoutMs` 不会延长异步回写；异步回写单次请求仍最多 5 秒。召回失败或预算耗尽后继续正常模型流程，`searchRetries` 的重试也必须在召回总预算内完成。同步回写不会延长召回预算，但会在当前会话正常退出前等待结果确认。现有短 `timeoutMs` 保持原有短超时，旧配置无需改名。
 
 ## 工作原理
 
@@ -190,3 +213,13 @@ Harness 当前仍是 developer preview；升级后应重新运行全部测试和
 - 保留 DSH 原消息 ID 和事件时间。
 - 只有显式启用 `allowPublic` 时才允许公开写入。
 - Warning 不包含 API key、Authorization header 或请求 body。
+
+## 兼容与退出行为
+
+DSH peer 范围为 `^0.1.0-rc.6 || ^0.1.2-rc.1 || ^0.2.1-rc.2`。验证覆盖 `0.1.0-rc.6`、`0.1.2-rc.1`、`0.1.7-rc.2` 和 `0.2.1-rc.2`；范围允许的后续版本仍需回归验证。
+
+回写在 `turn/end` 入队，并在宿主等待的 `session/flush` 检查点完成当前会话的队列，防止 headless 在回写完成前退出。等待预算至少 15 秒，并按入队时的实际回写超时、重试次数和同会话排队情况计算；其他会话可并行运行。Settings 修改模式或超时仅影响之后入队的请求。销毁时停止新任务、取消召回并等待回写，超时明确告警。信号退出仍受 DSH 自身 5 秒销毁上限约束，强制终止无法保证回写完成。`asyncMode: true` 表示等待服务端接受请求，记忆可检索的时间取决于云端处理。
+
+行为测试：`pnpm --filter @memtensor/memos-cloud-dsh-plugin test`。设置 `DSH_TEST_RUNTIME` 指向隔离宿主安装目录，可运行同一套测试与 `test:types`；同时设置 `DSH_TEST_PACKAGE` 为打包文件绝对路径后运行 `test:host`，验证真实 CLI 安装、Settings、迁移、召回、工具采集和退出回写（HTTP 使用本地可控服务）。
+
+真实环境回归：`node packages/dsh/scripts/live-regression.mjs /absolute/config.json all`。配置文件指定 `root`、`runtimes.old` / `runtimes.target`、`plugin` 安装包、`modelURL` / `model` / `modelKeyEnv`、`memoryURL`，以及包含现有凭据的 `envFiles` 路径。脚本创建隔离 profile 和测试用户，直接访问真实模型与 MemOS，保存脱敏请求、响应、耗时和升级回归结果。

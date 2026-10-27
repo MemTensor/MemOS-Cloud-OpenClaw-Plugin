@@ -1,7 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createAssistantMessage, createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import * as settingsModule from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   SESSION_FORMAT_VERSION,
   Session,
@@ -22,6 +23,7 @@ const controllers: MemosLifecycleController[] = []
 
 afterEach(async () => {
   await Promise.all(controllers.splice(0).map((controller) => controller.dispose()))
+  vi.unstubAllGlobals()
 })
 
 const userMessage = (text: string): UserMessage => createUserMessage({
@@ -65,7 +67,7 @@ interface Harness {
 
 type PreStepNextMock = ReturnType<typeof vi.fn<() => Promise<PreStepDecision>>>
 
-const setup = (config: Config = {}, client?: Partial<MemosClientLike>): Harness => {
+const setup = (config: Config = {}, client?: Partial<MemosClientLike>, shutdownTimeoutMs: number | null = 100, useDefaultClient = false): Harness => {
   const ctx = new Context()
   const search = vi.fn(async (): Promise<MemosSearchData> => ({
     memory_detail_list: [{ memory_value: 'recalled fact' }],
@@ -80,11 +82,12 @@ const setup = (config: Config = {}, client?: Partial<MemosClientLike>): Harness 
   const clientSignals: AbortSignal[] = []
   const controller = installMemosLifecycle(ctx, config, {
     logger: { warn },
-    clientFactory: (_resolved, signal) => {
+    ...(useDefaultClient ? {} : { clientFactory: (_resolved: unknown, signal: AbortSignal) => {
       clientSignals.push(signal)
       return fakeClient
-    },
+    } }),
     platform: 'win32',
+    ...(shutdownTimeoutMs === null ? {} : { shutdownTimeoutMs }),
   })
   controllers.push(controller)
   return { ctx, client: fakeClient, search, add, warn, controller, clientSignals }
@@ -127,6 +130,117 @@ const appendTurn = (
     reason: completed ? { kind: 'completed' } : { kind: 'blocked' },
   })
 }
+
+describe('operation timeout isolation with the production HTTP client', () => {
+  it('bounds recall including retries to five seconds while allowing a synchronous write to finish later', async () => {
+    vi.useFakeTimers()
+    const requests: Array<{ url: string; signal: AbortSignal }> = []
+    let searches = 0
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (url, init) => {
+      const signal = init!.signal!
+      requests.push({ url: String(url), signal })
+      if (String(url).endsWith('/search/memory')) {
+        if (++searches === 1) return new Response('{}', { status: 503 })
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        })
+      }
+      return new Promise<Response>((resolve) => setTimeout(() => resolve(new Response(JSON.stringify({ code: 0, data: { success: true } }))), 30000))
+    }))
+    const harness = setup({ apiKey: 'test-only', asyncMode: false, syncAddTimeoutMs: 180000 }, undefined, null, true)
+    try {
+      const session = createSession('isolated-deadlines')
+      const messages = [userMessage('question')]
+      const model = new AbortController()
+      let entered = false
+      const step = dispatchPreStep(harness, session, messages, { signal: model.signal }).then(value => { entered = true; return value })
+      await vi.advanceTimersByTimeAsync(100)
+      expect(searches).toBe(2)
+      await vi.advanceTimersByTimeAsync(4899)
+      expect(entered).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect((await step).result).toEqual({ kind: 'enter', messages })
+      expect(model.signal.aborted).toBe(false)
+      expect(requests[1]!.signal.aborted).toBe(true)
+      expect(harness.warn).toHaveBeenCalledWith('MemOS search skipped: MemOS recall timed out')
+
+      harness.ctx.emit('session/event', session, appendTurn(session, 1, 'remember'))
+      let flushed = false
+      const flush = harness.ctx.parallel('session/flush', session).then(() => { flushed = true })
+      await vi.advanceTimersByTimeAsync(6000)
+      expect(flushed).toBe(false)
+      expect(requests[2]!.signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(24000)
+      await flush
+      expect(flushed).toBe(true)
+      expect(requests[2]!.signal.aborted).toBe(false)
+      expect(harness.warn).toHaveBeenCalledTimes(1)
+    } finally {
+      await vi.runAllTimersAsync()
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses five seconds for async writes after a live mode switch without shortening an existing sync write', async () => {
+    vi.useFakeTimers()
+    const requests: Array<{ asyncMode: boolean; signal: AbortSignal; finish: () => void }> = []
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (_url, init) => new Promise<Response>((resolve, reject) => {
+      const signal = init!.signal!
+      requests.push({ asyncMode: JSON.parse(String(init!.body)).async_mode, signal,
+        finish: () => resolve(new Response(JSON.stringify({ code: 0, data: { success: true } }))),
+      })
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    })))
+    const config: Config = { apiKey: 'test-only', timeoutMs: 180000, syncAddTimeoutMs: 90000, asyncMode: false }
+    const harness = setup(config, undefined, null, true)
+    try {
+      const first = createSession('long-existing-sync')
+      const second = createSession('new-short-async')
+      harness.ctx.emit('session/event', first, appendTurn(first, 1, 'sync'))
+      await vi.advanceTimersByTimeAsync(0)
+      config.asyncMode = true
+      harness.ctx.emit('session/event', second, appendTurn(second, 1, 'async'))
+      let flushed = false
+      const flush = harness.ctx.parallel('session/flush', second).then(() => { flushed = true })
+      await vi.advanceTimersByTimeAsync(4999)
+      expect(requests.map(row => row.asyncMode)).toEqual([false, true])
+      expect(flushed).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await flush
+      expect(requests.map(row => row.signal.aborted)).toEqual([false, true])
+      expect(harness.warn).toHaveBeenCalledWith('MemOS add skipped: MemOS request timed out')
+      requests[0]!.finish()
+      await harness.controller.drain()
+    } finally {
+      for (const request of requests) request.finish()
+      await vi.runAllTimersAsync()
+      vi.useRealTimers()
+    }
+  })
+
+  it('continues the model turn when credential lookup stalls beyond the recall budget', async () => {
+    vi.useFakeTimers()
+    const transport = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', transport)
+    const harness = setup({ timeoutMs: 180000 }, undefined, null, true)
+    let finish: ((value: undefined) => void) | undefined
+    harness.ctx.provide('credentials', { resolve: () => new Promise<undefined>(resolve => { finish = resolve }) })
+    try {
+      const messages = [userMessage('question')]
+      const step = dispatchPreStep(harness, createSession('stalled-credentials'), messages)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect((await step).result).toEqual({ kind: 'enter', messages })
+      expect(transport).not.toHaveBeenCalled()
+      finish?.(undefined)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(transport).not.toHaveBeenCalled()
+    } finally {
+      finish?.(undefined)
+      await vi.runAllTimersAsync()
+      vi.useRealTimers()
+    }
+  })
+})
 
 describe('pre-step lifecycle', () => {
   it('preserves the host request-series boundary when adding recall', async () => {
@@ -275,7 +389,10 @@ describe('pre-step lifecycle', () => {
   })
 })
 
-class TestSettings extends SettingsProvider {
+// SettingsForms replaced this base class in 0.2.x. Exercise the actual legacy
+// provider only on hosts that export it; modern forms have a host smoke test.
+const SettingsProvider = Reflect.get(settingsModule, 'SettingsProvider')
+class TestSettings extends (SettingsProvider ?? class {}) {
   readonly writable = true
 
   protected async load(): Promise<Record<string, unknown>> {
@@ -285,7 +402,7 @@ class TestSettings extends SettingsProvider {
   protected async persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {}
 }
 
-describe('real settings provider lifecycle', () => {
+describe.skipIf(SettingsProvider === undefined)('real settings provider lifecycle', () => {
   it('merges settings, applies edits, validates writes and falls back after provider reload', async () => {
     const harness = setup({ userId: 'entry-user', queryPrefix: 'entry-prefix ' })
     const provider = await harness.ctx.plugin(TestSettings)
@@ -427,9 +544,10 @@ describe('turn-end lifecycle', () => {
     expect(harness.warn).toHaveBeenCalledOnce()
   })
 
-  it('disposal stops new work, aborts active clients and drains them', async () => {
+  it('disposal stops new work and waits for accepted writes without aborting them', async () => {
+    let finish: (() => void) | undefined
     const add = vi.fn((_request: MemosAddRequest, signal?: AbortSignal) => new Promise<unknown>((resolve) => {
-      signal?.addEventListener('abort', () => resolve({ aborted: true }), { once: true })
+      finish = () => { expect(signal?.aborted).toBe(false); resolve({ success: true }) }
     }))
     const harness = setup({}, { add })
     const session = createSession('dispose')
@@ -437,12 +555,109 @@ describe('turn-end lifecycle', () => {
     harness.ctx.emit('session/event', session, first)
     await vi.waitFor(() => expect(add).toHaveBeenCalledOnce())
 
-    await harness.controller.dispose()
+    let disposed = false
+    const disposal = harness.controller.dispose().then(() => { disposed = true })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+    expect(harness.clientSignals[0]?.aborted).toBe(false)
+    finish?.()
+    await disposal
     expect(harness.clientSignals.every((signal) => signal.aborted)).toBe(true)
     const second = appendTurn(session, 2, 'second')
     harness.ctx.emit('session/event', session, second)
     await Promise.resolve()
     expect(add).toHaveBeenCalledOnce()
+  })
+
+  it('bounds shutdown and warns about unconfirmed writes even if a transport ignores abort', async () => {
+    let finish: (() => void) | undefined
+    const add = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    const harness = setup({}, { add }, 10)
+    const session = createSession('stuck-write')
+    harness.ctx.emit('session/event', session, appendTurn(session, 1, 'remember'))
+    await vi.waitFor(() => expect(add).toHaveBeenCalledOnce())
+    await harness.controller.dispose()
+    expect(harness.clientSignals[0]?.aborted).toBe(true)
+    expect(harness.warn).toHaveBeenCalledWith(expect.stringContaining('1 write(s) unconfirmed'))
+    finish?.()
+    await harness.controller.drain()
+  })
+
+  it('finishes queued turns in session order during graceful shutdown', async () => {
+    const complete: Array<() => void> = []
+    const add = vi.fn((_request: MemosAddRequest, signal?: AbortSignal) => new Promise<void>((resolve) => {
+      expect(signal?.aborted).toBe(false)
+      complete.push(resolve)
+    }))
+    const harness = setup({}, { add }, 1000)
+    const session = createSession('queued-shutdown')
+    harness.ctx.emit('session/event', session, appendTurn(session, 1, 'first'))
+    harness.ctx.emit('session/event', session, appendTurn(session, 2, 'second'))
+    await vi.waitFor(() => expect(add).toHaveBeenCalledOnce())
+    const disposal = harness.controller.dispose()
+    complete[0]?.()
+    await vi.waitFor(() => expect(add).toHaveBeenCalledTimes(2))
+    expect(add.mock.calls[1]?.[0].messages[0]?.content).toBe('second')
+    complete[1]?.()
+    await disposal
+    expect(harness.warn).not.toHaveBeenCalled()
+  })
+
+  it('holds the awaited session flush for a slow write using the configured request budget', async () => {
+    vi.useFakeTimers()
+    let finish: (() => void) | undefined
+    const add = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    const harness = setup({ asyncMode: false, syncAddTimeoutMs: 60000 }, { add }, null)
+    try {
+      const session = createSession('slow-synchronous-flush')
+      harness.ctx.emit('session/event', session, appendTurn(session, 1, 'remember'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(add).toHaveBeenCalledOnce()
+      let flushed = false
+      const flush = harness.ctx.parallel('session/flush', session).then(() => { flushed = true })
+      await vi.advanceTimersByTimeAsync(26000)
+      expect(flushed).toBe(false)
+      expect(harness.clientSignals[0]?.aborted).toBe(false)
+      finish?.()
+      await flush
+      expect(flushed).toBe(true)
+      expect(harness.warn).not.toHaveBeenCalled()
+    } finally {
+      finish?.()
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes one session without waiting for another agent\'s write', async () => {
+    const complete: Array<() => void> = []
+    const add = vi.fn(() => new Promise<void>((resolve) => { complete.push(resolve) }))
+    const harness = setup({}, { add })
+    const first = createSession('flush-first')
+    const second = createSession('flush-unrelated')
+    try {
+      harness.ctx.emit('session/event', first, appendTurn(first, 1, 'first'))
+      harness.ctx.emit('session/event', second, appendTurn(second, 1, 'second'))
+      await vi.waitFor(() => expect(add).toHaveBeenCalledTimes(2))
+      const flush = harness.ctx.parallel('session/flush', first)
+      complete[0]?.()
+      await flush
+      expect(harness.warn).not.toHaveBeenCalled()
+      expect(harness.clientSignals[1]?.aborted).toBe(false)
+    } finally {
+      for (const finish of complete) finish()
+      await harness.controller.drain()
+    }
+  })
+
+  it('bounds a stalled session flush without failing the host checkpoint', async () => {
+    let finish: (() => void) | undefined
+    const harness = setup({}, { add: vi.fn(() => new Promise<void>((resolve) => { finish = resolve })) }, 10)
+    const session = createSession('stalled-flush')
+    harness.ctx.emit('session/event', session, appendTurn(session, 1, 'remember'))
+    await harness.ctx.parallel('session/flush', session)
+    expect(harness.warn).toHaveBeenCalledWith(expect.stringContaining('session flush timed out'))
+    finish?.()
+    await harness.controller.drain()
   })
 
   it('disposal aborts and waits for an in-flight recall search', async () => {

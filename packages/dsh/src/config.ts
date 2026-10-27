@@ -18,6 +18,8 @@ import {
 export const DEFAULT_API_KEY_ENV = 'MEMOS_API_KEY'
 export const DEFAULT_BASE_URL = 'https://memos.memtensor.cn/api/openmem/v1'
 export const DEFAULT_USER_ID = 'deepseek-harness-user'
+export const SHORT_TIMEOUT_MS = 5000
+export const MAX_SYNC_ADD_TIMEOUT_MS = 180_000
 
 export interface Config {
   apiKey?: string
@@ -49,6 +51,8 @@ export interface Config {
   maxItemChars?: number
   maxMessageChars?: number
   timeoutMs?: number
+  searchTimeoutMs?: number
+  syncAddTimeoutMs?: number
   searchRetries?: number
   addRetries?: number
   allowPublic?: boolean
@@ -85,6 +89,10 @@ export interface ResolvedConfig {
   maxItemChars: number
   maxMessageChars: number
   timeoutMs: number
+  searchTimeoutMs: number
+  syncAddTimeoutMs: number
+  /** Effective HTTP timeout, selected from the current asyncMode snapshot. */
+  addTimeoutMs: number
   searchRetries: number
   addRetries: number
   allowPublic: boolean
@@ -129,12 +137,24 @@ export const Config: z<Config> = z.object({
   maxRecallChars: z.number().step(1).min(1).max(100_000).default(12_000),
   maxItemChars: z.number().step(1).min(1).max(100_000).default(2000),
   maxMessageChars: z.number().step(1).min(1).max(100_000).default(12_000),
-  timeoutMs: z.number().step(1).min(100).max(60_000).default(5000),
+  timeoutMs: z.number().step(1).min(100).max(MAX_SYNC_ADD_TIMEOUT_MS).default(SHORT_TIMEOUT_MS),
+  // Keep these optional: schema defaults would hide an existing timeoutMs.
+  searchTimeoutMs: z.number().step(1).min(100).max(SHORT_TIMEOUT_MS),
+  syncAddTimeoutMs: z.number().step(1).min(100).max(MAX_SYNC_ADD_TIMEOUT_MS),
   searchRetries: z.number().step(1).min(0).max(3).default(1),
   addRetries: z.number().step(1).min(0).max(3).default(0),
   allowPublic: z.boolean().default(false),
   asyncMode: z.boolean().default(true),
 })
+
+// Old Schemastery versions ignore this metadata. Current hosts turn the whole
+// config into one live reference, making cross-field edits an atomic snapshot.
+const liveMetadata = { ...Config.meta, volatile: true }
+export const RuntimeConfig = z<ConfigInput>({ type: 'object', dict: Config.dict!, meta: liveMetadata })
+export type ConfigInput = Config | { readonly get: () => Config }
+export const configSnapshot = (input: ConfigInput): Config => (
+  'get' in input && typeof input.get === 'function' ? input.get() : input as Config
+)
 
 export const normalizeConfig = (
   input: Config = {},
@@ -167,6 +187,10 @@ export const normalizeConfig = (
     ?? environmentValue(environment, 'MEMOS_USER_ID')
     ?? DEFAULT_USER_ID
   const baseURL = (optionalString(config.baseURL) ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+  const timeoutMs = integerInRange('timeoutMs', config.timeoutMs ?? SHORT_TIMEOUT_MS, 100, MAX_SYNC_ADD_TIMEOUT_MS)
+  const searchTimeoutMs = integerInRange('searchTimeoutMs', config.searchTimeoutMs ?? Math.min(timeoutMs, SHORT_TIMEOUT_MS), 100, SHORT_TIMEOUT_MS)
+  const syncAddTimeoutMs = integerInRange('syncAddTimeoutMs', config.syncAddTimeoutMs ?? timeoutMs, 100, MAX_SYNC_ADD_TIMEOUT_MS)
+  const asyncMode = config.asyncMode ?? true
 
   return {
     ...(apiKey === undefined ? {} : { apiKey }),
@@ -197,11 +221,14 @@ export const normalizeConfig = (
     maxRecallChars: integerInRange('maxRecallChars', config.maxRecallChars ?? 12_000, 1, 100_000),
     maxItemChars: integerInRange('maxItemChars', config.maxItemChars ?? 2000, 1, 100_000),
     maxMessageChars: integerInRange('maxMessageChars', config.maxMessageChars ?? 12_000, 1, 100_000),
-    timeoutMs: integerInRange('timeoutMs', config.timeoutMs ?? 5000, 100, 60_000),
+    timeoutMs,
+    searchTimeoutMs,
+    syncAddTimeoutMs,
+    addTimeoutMs: asyncMode ? Math.min(timeoutMs, SHORT_TIMEOUT_MS) : syncAddTimeoutMs,
     searchRetries: integerInRange('searchRetries', config.searchRetries ?? 1, 0, 3),
     addRetries: integerInRange('addRetries', config.addRetries ?? 0, 0, 3),
     allowPublic: config.allowPublic ?? false,
-    asyncMode: config.asyncMode ?? true,
+    asyncMode,
   }
 }
 

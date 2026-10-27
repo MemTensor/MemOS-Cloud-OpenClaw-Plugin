@@ -21,8 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         runtime:
-          - current
-          - legacy-0.1.0-rc.6
+          - workspace
+          - 0.1.0-rc.6
+          - 0.1.7-rc.2
+          - 0.2.1-rc.2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,11 +42,11 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Install legacy DSH host packages
-        if: matrix.runtime == 'legacy-0.1.0-rc.6'
+        if: matrix.runtime == '0.1.0-rc.6'
         shell: bash
         run: |
           set -euo pipefail
-          legacy_runtime="${RUNNER_TEMP}/dsh-legacy-runtime"
+          legacy_runtime="${RUNNER_TEMP}/dsh-runtime"
           npm install \
             --prefix "${legacy_runtime}" \
             --no-save \
@@ -69,12 +71,25 @@ jobs:
             @deepseek-ai/dsh-typert-protocol@0.1.0-rc.6 \
             node-addon-require-builtin@0.1.4
 
-      - name: Test against current DSH
-        if: matrix.runtime == 'current'
-        run: pnpm --filter @memtensor/memos-cloud-dsh-plugin test
-
-      - name: Test against legacy DSH
-        if: matrix.runtime == 'legacy-0.1.0-rc.6'
+      - name: Install full DSH runtime
+        if: matrix.runtime == '0.1.7-rc.2' || matrix.runtime == '0.2.1-rc.2'
         env:
-          DSH_TEST_RUNTIME: ${{ runner.temp }}/dsh-legacy-runtime
-        run: pnpm --filter @memtensor/memos-cloud-dsh-plugin test
+          DSH_VERSION: ${{ matrix.runtime }}
+        run: npm install --prefix "${RUNNER_TEMP}/dsh-runtime" --no-save --package-lock=false --ignore-scripts "@deepseek-ai/dsh@${DSH_VERSION}"
+
+      - name: Select test runtime
+        if: matrix.runtime != 'workspace'
+        run: echo "DSH_TEST_RUNTIME=${RUNNER_TEMP}/dsh-runtime" >> "$GITHUB_ENV"
+
+      - name: Check source against host SDK and run behavior tests
+        run: |
+          pnpm --filter @memtensor/memos-cloud-plugin-core build
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin test:types
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin test
+
+      - name: Pack and test real CLI installation, Settings, migration and shutdown
+        if: matrix.runtime == '0.1.7-rc.2' || matrix.runtime == '0.2.1-rc.2'
+        run: |
+          pnpm --dir packages/dsh pack --pack-destination artifacts/compat
+          export DSH_TEST_PACKAGE="${GITHUB_WORKSPACE}/packages/dsh/artifacts/compat/memtensor-memos-cloud-dsh-plugin-$(node -p "require('./packages/dsh/package.json').version").tgz"
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin test:host

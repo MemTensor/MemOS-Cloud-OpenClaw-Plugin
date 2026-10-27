@@ -10,10 +10,12 @@ export interface MemosClientLike {
 }
 
 export interface MemosLifecycleDependencies {
-  clientFactory?: (config: ResolvedConfig, lifecycleSignal: AbortSignal) => MemosClientLike
+  clientFactory?: (config: ResolvedConfig, lifecycleSignal: AbortSignal, operation: 'search' | 'add') => MemosClientLike
   logger?: Pick<Logger, 'warn'>
   platform?: NodeJS.Platform
   maxRecallItemChars?: number
+  /** Override the computed queue budget for flush/disposal (primarily tests). */
+  shutdownTimeoutMs?: number
 }
 
 export interface MemosLifecycleController {
