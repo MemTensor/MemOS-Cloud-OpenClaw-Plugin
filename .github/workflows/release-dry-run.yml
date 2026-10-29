@@ -157,18 +157,16 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: bash .github/scripts/retry.sh --label "npm install" -- npm install
+        run: |
+          corepack enable
+          bash .github/scripts/retry.sh --label "pnpm install" -- pnpm install --frozen-lockfile
 
       - name: Run tests
         shell: bash
         run: |
           set -euo pipefail
           bash .github/scripts/retry.sh --attempts 2 --label "release workflow script tests" -- node --test .github/scripts/*.test.mjs
-          if compgen -G "test/*.test.mjs" >/dev/null; then
-            bash .github/scripts/retry.sh --attempts 2 --label "plugin tests" -- node --test test/*.test.mjs
-          else
-            echo "No plugin tests found; skipping."
-          fi
+          bash .github/scripts/retry.sh --attempts 2 --label "OpenClaw plugin tests" -- pnpm --filter @memtensor/memos-cloud-openclaw-plugin test
 
       - name: Validate committed release source version
         if: ${{ inputs.enforce_source_version }}
@@ -186,14 +184,14 @@ jobs:
           MEMOS_ARMS_ENDPOINT: ${{ secrets.MEMOS_ARMS_ENDPOINT }}
           MEMOS_ARMS_PID: ${{ secrets.MEMOS_ARMS_PID }}
           MEMOS_ARMS_ENV: ${{ secrets.MEMOS_ARMS_ENV }}
-        run: bash .github/scripts/retry.sh --label "generate telemetry credentials" -- node scripts/generate-telemetry-credentials.cjs
+        run: bash .github/scripts/retry.sh --label "generate telemetry credentials" -- node packages/openclaw/scripts/generate-telemetry-credentials.cjs
 
       - name: Verify package contents
         if: ${{ inputs.enforce_source_version }}
         shell: bash
         run: |
           set -euo pipefail
-          bash .github/scripts/retry.sh --label "npm pack dry-run" -- bash -euo pipefail -c 'npm pack --dry-run --json > "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json"'
+          bash .github/scripts/retry.sh --label "pnpm pack dry-run" -- bash -euo pipefail -c 'pnpm --dir packages/openclaw pack --dry-run --json > "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json"'
 
       - name: Draft and validate GitHub Release notes
         id: release_notes

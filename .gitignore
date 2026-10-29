@@ -7,8 +7,12 @@ node_modules
 .memos_arms_uid
 telemetry.credentials.json
 
-# NPM
+# Package managers
 .npmrc
+pnpm-debug.log*
+packages/core/dist/
+packages/openclaw/lib/memos-core/
+packages/openclaw/artifacts/
 
 # System
 .DS_Store

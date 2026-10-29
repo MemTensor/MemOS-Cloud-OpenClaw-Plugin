@@ -25,6 +25,10 @@ while [ "$#" -gt 0 ]; do
       label="$2"
       shift 2
       ;;
+    --attempt-dir)
+      attempt_dir="$2"
+      shift 2
+      ;;
     --)
       shift
       break

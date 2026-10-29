@@ -1,56 +1,29 @@
 {
-  "name": "@memtensor/memos-cloud-openclaw-plugin",
-  "version": "0.1.20",
-  "description": "OpenClaw lifecycle plugin for MemOS Cloud (add + recall memory)",
-  "files": [
-    "index.js",
-    "lib",
-    "openclaw.plugin.json",
-    "moltbot.plugin.json",
-    "clawdbot.plugin.json",
-    "telemetry.credentials.json"
-  ],
+  "name": "memos-cloud-host-plugins",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MemOS Cloud host integrations monorepo",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
-    "test": "node --test .github/scripts/*.test.mjs test/*.test.mjs",
-    "generate-telemetry-credentials": "node scripts/generate-telemetry-credentials.cjs",
-    "sync-version": "node scripts/sync-version.js",
-    "version": "npm run sync-version && git add openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json",
-    "publish-beta": "npm publish --tag beta",
-    "publish-beta-patch": "npm version prepatch --preid=beta && npm publish --tag beta",
-    "publish-latest": "npm version $(node -p \"require('./package.json').version.split('-')[0]\") && npm publish",
-    "publish-latest-patch": "npm version patch && npm publish"
+    "prepare:openclaw": "node scripts/prepare-package.mjs openclaw",
+    "pack:dsh": "node scripts/pack-package.mjs dsh",
+    "publish:openclaw:dry-run": "node scripts/release-package.mjs openclaw --channel stable --bump current --dry-run",
+    "publish:openclaw": "node scripts/release-package.mjs openclaw --channel stable --bump current",
+    "publish:openclaw:patch:dry-run": "node scripts/release-package.mjs openclaw --channel stable --bump patch --dry-run",
+    "publish:openclaw:patch": "node scripts/release-package.mjs openclaw --channel stable --bump patch",
+    "publish:openclaw:beta": "node scripts/release-package.mjs openclaw --channel beta --bump current",
+    "publish:openclaw:beta-patch": "node scripts/release-package.mjs openclaw --channel beta --bump patch",
+    "publish:dsh:dry-run": "node scripts/release-package.mjs dsh --channel stable --bump current --dry-run",
+    "publish:dsh": "node scripts/release-package.mjs dsh --channel stable --bump current",
+    "publish:dsh:patch:dry-run": "node scripts/release-package.mjs dsh --channel stable --bump patch --dry-run",
+    "publish:dsh:patch": "node scripts/release-package.mjs dsh --channel stable --bump patch",
+    "publish:dsh:beta": "node scripts/release-package.mjs dsh --channel beta --bump current",
+    "publish:dsh:beta-patch": "node scripts/release-package.mjs dsh --channel beta --bump patch"
   },
-  "keywords": [
-    "memos",
-    "memos-cloud",
-    "openclaw",
-    "plugin",
-    "memory"
-  ],
-  "homepage": "https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin#readme",
-  "bugs": {
-    "url": "https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/MemTensor/MemOS-Cloud-OpenClaw-Plugin.git"
-  },
-  "type": "module",
-  "author": "MemTensor",
-  "license": "MIT",
-  "openclaw": {
-    "extensions": [
-      "./index.js"
-    ]
-  },
-  "clawdbot": {
-    "extensions": [
-      "./index.js"
-    ]
-  },
-  "moltbot": {
-    "extensions": [
-      "./index.js"
-    ]
+  "devDependencies": {
+    "semver": "^7.8.5"
   }
 }

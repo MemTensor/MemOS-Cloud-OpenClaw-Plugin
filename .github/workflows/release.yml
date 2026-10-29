@@ -362,10 +362,14 @@ jobs:
           validate_release_commit_versions() {
             local commit_sha="$1"
             local file
+            local legacy_file
+            local payload
             local actual
-            for file in package.json openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json; do
+            for file in packages/openclaw/package.json packages/openclaw/openclaw.plugin.json packages/openclaw/moltbot.plugin.json packages/openclaw/clawdbot.plugin.json; do
+              legacy_file="${file#packages/openclaw/}"
+              payload="$(git show "${commit_sha}:${file}" 2>/dev/null || git show "${commit_sha}:${legacy_file}")"
               actual="$(
-                git show "${commit_sha}:${file}" |
+                printf '%s' "${payload}" |
                   node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value).version || ""));'
               )"
               if [ "${actual}" != "${RELEASE_VERSION}" ]; then
@@ -419,18 +423,16 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: bash .github/scripts/retry.sh --label "npm install" -- npm install
+        run: |
+          corepack enable
+          bash .github/scripts/retry.sh --label "pnpm install" -- pnpm install --frozen-lockfile
 
       - name: Run tests
         shell: bash
         run: |
           set -euo pipefail
           bash .github/scripts/retry.sh --attempts 2 --label "release workflow script tests" -- node --test .github/scripts/*.test.mjs
-          if compgen -G "test/*.test.mjs" >/dev/null; then
-            bash .github/scripts/retry.sh --attempts 2 --label "plugin tests" -- node --test test/*.test.mjs
-          else
-            echo "No plugin tests found; skipping."
-          fi
+          bash .github/scripts/retry.sh --attempts 2 --label "OpenClaw plugin tests" -- pnpm --filter @memtensor/memos-cloud-openclaw-plugin test
 
       - name: Validate committed release source version
         shell: bash
@@ -447,13 +449,13 @@ jobs:
           MEMOS_ARMS_ENDPOINT: ${{ secrets.MEMOS_ARMS_ENDPOINT }}
           MEMOS_ARMS_PID: ${{ secrets.MEMOS_ARMS_PID }}
           MEMOS_ARMS_ENV: ${{ secrets.MEMOS_ARMS_ENV }}
-        run: bash .github/scripts/retry.sh --label "generate telemetry credentials" -- node scripts/generate-telemetry-credentials.cjs
+        run: bash .github/scripts/retry.sh --label "generate telemetry credentials" -- node packages/openclaw/scripts/generate-telemetry-credentials.cjs
 
       - name: Verify package contents
         shell: bash
         run: |
           set -euo pipefail
-          bash .github/scripts/retry.sh --label "npm pack dry-run" -- bash -euo pipefail -c 'npm pack --dry-run --json > "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json"'
+          bash .github/scripts/retry.sh --label "pnpm pack dry-run" -- bash -euo pipefail -c 'pnpm --dir packages/openclaw pack --dry-run --json > "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json"'
 
       - name: Draft GitHub Release notes
         id: release_notes
@@ -772,10 +774,14 @@ jobs:
           validate_release_commit_versions() {
             local commit_sha="$1"
             local file
+            local legacy_file
+            local payload
             local actual
-            for file in package.json openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json; do
+            for file in packages/openclaw/package.json packages/openclaw/openclaw.plugin.json packages/openclaw/moltbot.plugin.json packages/openclaw/clawdbot.plugin.json; do
+              legacy_file="${file#packages/openclaw/}"
+              payload="$(git show "${commit_sha}:${file}" 2>/dev/null || git show "${commit_sha}:${legacy_file}")"
               actual="$(
-                git show "${commit_sha}:${file}" |
+                printf '%s' "${payload}" |
                   node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value).version || ""));'
               )"
               if [ "${actual}" != "${RELEASE_VERSION}" ]; then
@@ -951,7 +957,7 @@ jobs:
             publish_confirmed=false
             for attempt in 1 2 3; do
               set +e
-              npm publish --access public --tag "${NPM_DIST_TAG}" >"${attempt_dir}/${attempt}.log" 2>&1
+              pnpm --dir packages/openclaw publish --access public --tag "${NPM_DIST_TAG}" >"${attempt_dir}/${attempt}.log" 2>&1
               publish_status=$?
               set -e
               sed -n '1,160p' "${attempt_dir}/${attempt}.log"

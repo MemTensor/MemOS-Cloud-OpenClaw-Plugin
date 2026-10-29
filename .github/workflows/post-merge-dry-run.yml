@@ -23,9 +23,10 @@ on:
       - ".github/scripts/wait-for-npm-release.test.mjs"
       - ".github/scripts/retry.sh"
       - "package.json"
-      - "scripts/generate-telemetry-credentials.cjs"
-      - "lib/**"
-      - "test/*.test.mjs"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/core/**"
+      - "packages/openclaw/**"
       - ".gitignore"
 
 permissions:
@@ -57,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
+          version="$(node -p "require('./packages/openclaw/package.json').version")"
           npm_dist_tag="latest"
           if [[ "${version}" == *-* ]]; then
             prerelease="${version#*-}"

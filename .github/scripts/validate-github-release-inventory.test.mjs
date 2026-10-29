@@ -155,8 +155,8 @@ test("release workflow publishes committed main versions and pins recovery to np
   assert.match(workflow, /release_flags\+=\(--prerelease\)/);
   assert.ok(
     workflow.indexOf("Validate committed release source version") <
-      workflow.indexOf('npm publish --access public --tag "${NPM_DIST_TAG}"'),
-    "the committed source version gate must run before npm publish",
+      workflow.indexOf('pnpm --dir packages/openclaw publish --access public --tag "${NPM_DIST_TAG}"'),
+    "the committed source version gate must run before pnpm publish",
   );
   assert.match(
     workflow,
@@ -224,7 +224,7 @@ test("real publishes are version-transition-gated and reusable callers are immut
     /npm \$\{RELEASE_VERSION\} and tag \$\{release_tag\} were verified before the Draft was created/,
   );
   assert.ok(
-    releaseWorkflow.indexOf('npm publish --access public --tag "${NPM_DIST_TAG}"') <
+    releaseWorkflow.indexOf('pnpm --dir packages/openclaw publish --access public --tag "${NPM_DIST_TAG}"') <
       releaseWorkflow.indexOf("release_flags+=(--draft)"),
     "npm must be published and verified before the human-reviewed Draft is created",
   );

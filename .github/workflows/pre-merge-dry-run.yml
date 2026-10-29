@@ -30,13 +30,11 @@ on:
       - ".github/scripts/wait-for-npm-release.test.mjs"
       - ".github/scripts/retry.sh"
       - "package.json"
-      - "openclaw.plugin.json"
-      - "moltbot.plugin.json"
-      - "clawdbot.plugin.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/core/**"
+      - "packages/openclaw/**"
       - ".github/release-notes/**"
-      - "scripts/generate-telemetry-credentials.cjs"
-      - "lib/**"
-      - "test/*.test.mjs"
       - ".gitignore"
 
 permissions:

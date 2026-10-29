@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const RELEASE_VERSION_FILES = [
-  "package.json",
-  "openclaw.plugin.json",
-  "moltbot.plugin.json",
-  "clawdbot.plugin.json",
+  "packages/openclaw/package.json",
+  "packages/openclaw/openclaw.plugin.json",
+  "packages/openclaw/moltbot.plugin.json",
+  "packages/openclaw/clawdbot.plugin.json",
 ];
 
 function clean(value) {

@@ -72,7 +72,7 @@ test("skips ordinary merges whose four version values are unchanged", () => {
 
 test("fails closed when only some version files change", () => {
   const current = versions("0.1.20");
-  current["package.json"] = "0.1.21";
+  current[VERSION_FILES[0]] = "0.1.21";
   const result = inspectVersionTransition({
     previousVersions: versions("0.1.20"),
     currentVersions: current,
@@ -83,7 +83,7 @@ test("fails closed when only some version files change", () => {
 
 test("fails closed when the merged versions disagree", () => {
   const current = versions("0.1.21");
-  current["moltbot.plugin.json"] = "0.1.22";
+  current[VERSION_FILES[2]] = "0.1.22";
   const result = validateAutoRelease(valid({ currentVersions: current }));
   assert.equal(result.ok, false);
   assert.match(result.reason, /inconsistent versions/);

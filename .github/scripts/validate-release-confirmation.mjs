@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { appendFileSync } from "node:fs";
-import { cleanVersion, parseSemver } from "../../lib/semver.js";
+import { cleanVersion, parseSemver } from "../../packages/openclaw/lib/semver.js";
 
 export function expectedReleaseConfirmation(version) {
   const versionWithoutPrefix = cleanVersion(version);

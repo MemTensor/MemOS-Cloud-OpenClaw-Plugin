@@ -4,9 +4,16 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { compareSemver, parseSemver } from "../../lib/semver.js";
+import { compareSemver, parseSemver } from "../../packages/openclaw/lib/semver.js";
 
 export const VERSION_FILES = [
+  "packages/openclaw/package.json",
+  "packages/openclaw/openclaw.plugin.json",
+  "packages/openclaw/moltbot.plugin.json",
+  "packages/openclaw/clawdbot.plugin.json",
+];
+
+const LEGACY_VERSION_FILES = [
   "package.json",
   "openclaw.plugin.json",
   "moltbot.plugin.json",
@@ -42,12 +49,23 @@ export function versionsFromGitRef(ref, root = process.cwd()) {
   const sourceRef = clean(ref);
   if (!sourceRef) throw new Error("a git ref is required to read previous versions");
   return Object.fromEntries(
-    VERSION_FILES.map((file) => {
-      const raw = execFileSync("git", ["show", `${sourceRef}:${file}`], {
-        cwd: root,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+    VERSION_FILES.map((file, index) => {
+      let raw;
+      try {
+        raw = execFileSync("git", ["show", `${sourceRef}:${file}`], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (error) {
+        const legacyFile = LEGACY_VERSION_FILES[index];
+        if (!legacyFile) throw error;
+        raw = execFileSync("git", ["show", `${sourceRef}:${legacyFile}`], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      }
       return [file, clean(JSON.parse(raw).version)];
     }),
   );

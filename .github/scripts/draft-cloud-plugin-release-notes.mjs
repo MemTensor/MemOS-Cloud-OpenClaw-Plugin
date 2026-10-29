@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { cleanVersion, compareSemver, parseSemver } from "../../lib/semver.js";
+import { cleanVersion, compareSemver, parseSemver } from "../../packages/openclaw/lib/semver.js";
 
 export { cleanVersion, compareSemver, parseSemver };
 
@@ -227,8 +227,12 @@ function parseChangedFiles(previousTag, currentRef) {
 }
 
 function packageChanges(previousTag, currentRef) {
-  const before = gitShowJson(previousTag, "package.json");
-  const after = currentRef === "HEAD" ? readJsonFile("package.json") : gitShowJson(currentRef, "package.json");
+  const packagePath = "packages/openclaw/package.json";
+  const beforeAtWorkspacePath = gitShowJson(previousTag, packagePath);
+  const before = beforeAtWorkspacePath.version
+    ? beforeAtWorkspacePath
+    : gitShowJson(previousTag, "package.json");
+  const after = currentRef === "HEAD" ? readJsonFile(packagePath) : gitShowJson(currentRef, packagePath);
   return ["name", "version"]
     .filter((field) => before[field] !== after[field])
     .map((field) => ({ field, before: before[field], after: after[field] }));

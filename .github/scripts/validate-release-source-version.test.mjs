@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -14,6 +14,7 @@ import {
 function fixture(versions) {
   const root = mkdtempSync(join(tmpdir(), "openclaw-release-source-"));
   for (const file of RELEASE_VERSION_FILES) {
+    mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(
       join(root, file),
       `${JSON.stringify({ version: versions[file] }, null, 2)}\n`,
@@ -54,21 +55,17 @@ test("accepts a source only when all release version files match", () => {
 });
 
 test("reports every mismatched or missing version before publish", () => {
-  const root = fixture({
-    "package.json": "0.1.20",
-    "openclaw.plugin.json": "0.1.20-beta.0",
-    "moltbot.plugin.json": "",
-    "clawdbot.plugin.json": "0.1.19",
-  });
+  const root = fixture(Object.fromEntries([
+    [RELEASE_VERSION_FILES[0], "0.1.20"],
+    [RELEASE_VERSION_FILES[1], "0.1.20-beta.0"],
+    [RELEASE_VERSION_FILES[2], ""],
+    [RELEASE_VERSION_FILES[3], "0.1.19"],
+  ]));
   const report = inspectWorktree(root, "0.1.20");
   assert.equal(report.ok, false);
   assert.deepEqual(
     report.mismatches.map((entry) => entry.file),
-    [
-      "openclaw.plugin.json",
-      "moltbot.plugin.json",
-      "clawdbot.plugin.json",
-    ],
+    RELEASE_VERSION_FILES.slice(1),
   );
 
   const message = formatReleaseSourceVersionError(report);
@@ -94,7 +91,7 @@ test("reads the committed Git ref instead of uncommitted worktree changes", () =
     "release fixture",
   ]);
   writeFileSync(
-    join(root, "package.json"),
+    join(root, RELEASE_VERSION_FILES[0]),
     `${JSON.stringify({ version: "0.1.20" }, null, 2)}\n`,
     "utf8",
   );
@@ -112,7 +109,7 @@ test("reads the committed Git ref instead of uncommitted worktree changes", () =
     });
     assert.equal(committed.ok, true);
     assert.equal(worktree.ok, false);
-    assert.equal(worktree.mismatches[0].file, "package.json");
+    assert.equal(worktree.mismatches[0].file, RELEASE_VERSION_FILES[0]);
   } finally {
     process.chdir(cwd);
   }

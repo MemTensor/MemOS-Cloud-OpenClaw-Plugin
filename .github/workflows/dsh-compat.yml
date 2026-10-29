@@ -1,0 +1,142 @@
+name: DSH Plugin Compatibility
+
+on:
+  push:
+    branches:
+      - test
+    paths:
+      - ".github/workflows/dsh-compat.yml"
+      - "packages/core/**"
+      - "packages/dsh/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/verify-package-artifacts.mjs"
+      - "scripts/command-runtime.mjs"
+      - "test/dsh-host-compatibility.test.mjs"
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - test
+    paths:
+      - ".github/workflows/dsh-compat.yml"
+      - "packages/core/**"
+      - "packages/dsh/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/verify-package-artifacts.mjs"
+      - "scripts/command-runtime.mjs"
+      - "test/dsh-host-compatibility.test.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - workspace
+          - 0.1.0-rc.6
+          - 0.1.7-rc.2
+          - 0.2.1-rc.2
+          - 0.2.1-rc.4
+        pnpm:
+          - "11.9.0"
+          - "12.11.2"
+        exclude:
+          - runtime: workspace
+            pnpm: "12.11.2"
+          - runtime: 0.1.0-rc.6
+            pnpm: "12.11.2"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          # Preserve Node 22 coverage for legacy hosts; current DSH requires >=24.9.
+          node-version: >-
+            ${{ startsWith(matrix.runtime, '0.1.')
+                && '>=22.19.0 <23'
+                || '>=24.9.0 <25' }}
+
+      - name: Install workspace dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm peers check
+
+      - name: Install legacy DSH host packages
+        if: matrix.runtime == '0.1.0-rc.6'
+        shell: bash
+        run: |
+          set -euo pipefail
+          legacy_runtime="${RUNNER_TEMP}/dsh-runtime"
+          npm install \
+            --prefix "${legacy_runtime}" \
+            --no-save \
+            --package-lock=false \
+            --ignore-scripts \
+            @deepseek-ai/cordis@4.0.1 \
+            @deepseek-ai/cordis-plugin-include@1.0.6 \
+            @deepseek-ai/cordis-plugin-loader@1.0.2 \
+            @deepseek-ai/schemastery@3.18.1 \
+            @deepseek-ai/dsh-agent@0.1.0-rc.6 \
+            @deepseek-ai/dsh-attachment@0.1.0-rc.6 \
+            @deepseek-ai/dsh-brand@0.1.0-rc.6 \
+            @deepseek-ai/dsh-credentials@0.1.0-rc.6 \
+            @deepseek-ai/dsh-invariants@0.1.0-rc.6 \
+            @deepseek-ai/dsh-launch-environment@0.1.0-rc.6 \
+            @deepseek-ai/dsh-llm@0.1.0-rc.6 \
+            @deepseek-ai/dsh-scope@0.1.0-rc.6 \
+            @deepseek-ai/dsh-session@0.1.0-rc.6 \
+            @deepseek-ai/dsh-settings@0.1.0-rc.6 \
+            @deepseek-ai/dsh-system-prompt@0.1.0-rc.6 \
+            @deepseek-ai/dsh-timeout@0.1.0-rc.6 \
+            @deepseek-ai/dsh-typert-protocol@0.1.0-rc.6 \
+            node-addon-require-builtin@0.1.4
+
+      - name: Install full DSH runtime
+        if: matrix.runtime != 'workspace' && matrix.runtime != '0.1.0-rc.6'
+        env:
+          DSH_VERSION: ${{ matrix.runtime }}
+        run: npm install --prefix "${RUNNER_TEMP}/dsh-runtime" --no-save --package-lock=false --ignore-scripts "@deepseek-ai/dsh@${DSH_VERSION}"
+
+      - name: Select test runtime
+        if: matrix.runtime != 'workspace'
+        run: echo "DSH_TEST_RUNTIME=${RUNNER_TEMP}/dsh-runtime" >> "$GITHUB_ENV"
+
+      - name: Check source against host SDK and run behavior tests
+        run: |
+          node --test test/dsh-host-compatibility.test.mjs
+          pnpm --filter @memtensor/memos-cloud-plugin-core build
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin test:types
+          pnpm --filter @memtensor/memos-cloud-dsh-plugin test
+
+      - name: Install the package manager used by the DSH profile
+        if: matrix.runtime != 'workspace' && matrix.runtime != '0.1.0-rc.6'
+        env:
+          PROFILE_PNPM_VERSION: ${{ matrix.pnpm }}
+        run: |
+          npm install --prefix "${RUNNER_TEMP}/dsh-pnpm" --no-save --package-lock=false "pnpm@${PROFILE_PNPM_VERSION}"
+          echo "DSH_TEST_PNPM=${RUNNER_TEMP}/dsh-pnpm/node_modules/.bin/pnpm" >> "$GITHUB_ENV"
+          echo "DSH_TEST_PNPM_VERSION=${PROFILE_PNPM_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install the old host and previous plugin for upgrade regressions
+        if: matrix.runtime == '0.2.1-rc.4'
+        run: |
+          npm install --prefix "${RUNNER_TEMP}/dsh-upgrade-runtime" --no-save --package-lock=false --ignore-scripts "@deepseek-ai/dsh@0.1.7-rc.2"
+          npm pack @memtensor/memos-cloud-dsh-plugin@0.1.1 --ignore-scripts --pack-destination "${RUNNER_TEMP}"
+          echo "DSH_TEST_UPGRADE_FROM=${RUNNER_TEMP}/dsh-upgrade-runtime" >> "$GITHUB_ENV"
+          echo "DSH_TEST_UPGRADE_PACKAGE=${RUNNER_TEMP}/memtensor-memos-cloud-dsh-plugin-0.1.1.tgz" >> "$GITHUB_ENV"
+
+      - name: Pack and test CLI installation, plugin and host upgrades, Settings and shutdown
+        if: matrix.runtime != 'workspace' && matrix.runtime != '0.1.0-rc.6'
+        run: |
+          pnpm exec node scripts/verify-package-artifacts.mjs --plugin dsh

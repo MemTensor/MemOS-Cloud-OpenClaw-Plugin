@@ -1,0 +1,9 @@
+node_modules/
+lib/
+artifacts/
+coverage/
+docs/
+*.tgz
+.env
+.env.*
+.npmrc
